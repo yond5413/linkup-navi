@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:0.5b"
 
+    llm_provider: str = "openrouter"
+    openrouter_api_key: Optional[str] = None
+    openrouter_model: str = "arcee-ai/trinity-large-preview:free"
+
     linkup_api_key: Optional[str] = None
     linkup_api_url: str = "https://api.linkup.com/v1"
 

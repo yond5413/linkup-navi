@@ -6,7 +6,7 @@ from typing import Optional
 from app.models.requests import PrepRequest
 from app.models.responses import PrepResponse, BriefingResponse
 from app.services.memory import SessionMemory
-from app.services.ollama import OllamaClient
+from app.services.llm import LLMClient
 from app.services.linkup import LinkupClient
 from app.services.pdf_parser import PDFParser
 from app.core.planner import Planner
@@ -41,9 +41,9 @@ async def prepare_meeting(
             status_code=400, detail="No files uploaded for this session"
         )
 
-    ollama = OllamaClient()
-    planner = Planner(ollama)
-    executor = Executor(ollama, LinkupClient(), PDFParser())
+    llm = LLMClient()
+    planner = Planner(llm)
+    executor = Executor(llm, LinkupClient(), PDFParser())
     evaluator = Evaluator()
 
     session_goal = session.user_goal or ""

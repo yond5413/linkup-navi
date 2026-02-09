@@ -1,12 +1,12 @@
 """Planning module using Qwen for intent inference and goal decomposition."""
 
 from typing import Optional
-from app.services.ollama import OllamaClient, PlannerOutput, PlanStep
+from app.services.llm import LLMClient, PlannerOutput, PlanStep
 
 
 class Planner:
-    def __init__(self, ollama: OllamaClient):
-        self.ollama = ollama
+    def __init__(self, llm: LLMClient):
+        self.llm = llm
 
     SYSTEM_PROMPT = """You are a professional meeting preparation assistant. Your job is to:
 1. Understand the user's goal
@@ -77,7 +77,7 @@ Considerations:
         }
 
         try:
-            result = self.ollama.generate_json(prompt, schema, self.SYSTEM_PROMPT)
+            result = self.llm.generate_json(prompt, schema, self.SYSTEM_PROMPT)
             return PlannerOutput(
                 intent=result.get("intent", user_goal),
                 steps=[PlanStep(**s) for s in result.get("steps", [])],
@@ -132,7 +132,7 @@ Considerations:
         )
 
 
-def create_planner(ollama: Optional[OllamaClient] = None) -> Planner:
-    if ollama is None:
-        ollama = OllamaClient()
-    return Planner(ollama)
+def create_planner(llm: Optional[LLMClient] = None) -> Planner:
+    if llm is None:
+        llm = LLMClient()
+    return Planner(llm)

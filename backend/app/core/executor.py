@@ -1,7 +1,7 @@
 """Execution engine for running planned steps."""
 
 from typing import Optional
-from app.services.ollama import OllamaClient, BriefingOutput
+from app.services.llm import LLMClient, BriefingOutput
 from app.services.linkup import LinkupClient
 from app.services.pdf_parser import PDFParser
 from app.core.planner import PlannerOutput, PlanStep
@@ -10,11 +10,11 @@ from app.core.planner import PlannerOutput, PlanStep
 class Executor:
     def __init__(
         self,
-        ollama: OllamaClient,
+        llm: LLMClient,
         linkup: LinkupClient,
         pdf_parser: PDFParser,
     ):
-        self.ollama = ollama
+        self.llm = llm
         self.linkup = linkup
         self.pdf_parser = pdf_parser
 
@@ -58,7 +58,7 @@ class Executor:
     ) -> dict:
         summaries = {}
         for name, content in file_contents.items():
-            summary = self.ollama.generate(
+            summary = self.llm.generate(
                 f"Summarize this document concisely (2-3 paragraphs):\n\n{content}",
                 system="You are a professional document summarizer. Be concise and extract key points.",
             )
@@ -85,7 +85,7 @@ class Executor:
         self, file_contents: dict[str, str], params: dict
     ) -> dict:
         combined = "\n\n".join(file_contents.values())
-        synthesis = self.ollama.generate(
+        synthesis = self.llm.generate(
             f"""Create a meeting preparation briefing from this information.
 Include: agenda summary, key deadlines, risks/considerations, and actionable items.
 
@@ -116,10 +116,13 @@ Include: agenda summary, key deadlines, risks/considerations, and actionable ite
             if "research" in result:
                 research_parts = []
                 for entity, info in result["research"].items():
+                    answer = info.get('answer', 'No research answer available.')
+                    sources = info.get('sources', [])
+                    source_links = ", ".join([f"[{s.get('name', 'Source')}]({s.get('url', '#')})" for s in sources[:3]])
                     research_parts.append(
-                        f"**{entity}**: {info.get('description', 'No description')}"
+                        f"**{entity}**: {answer}\n*Sources: {source_links}*"
                     )
-                research_snippet = "\n".join(research_parts)
+                research_snippet = "\n\n".join(research_parts)
 
         summary_text = (
             "\n\n".join(summary_parts) if summary_parts else "No summaries available."
@@ -150,7 +153,7 @@ Include: agenda summary, key deadlines, risks/considerations, and actionable ite
 ## Actionable Briefing
 Create a concise, professional briefing for the meeting attendee."""
 
-        briefing_text = self.ollama.generate(
+        briefing_text = self.llm.generate(
             prompt,
             system="Create professional, actionable meeting briefings. Be concise and practical.",
         )
@@ -169,12 +172,12 @@ Create a concise, professional briefing for the meeting attendee."""
 
 
 def create_executor(
-    ollama: Optional[OllamaClient] = None,
+    llm: Optional[LLMClient] = None,
     linkup: Optional[LinkupClient] = None,
     pdf_parser: Optional[PDFParser] = None,
 ) -> Executor:
     return Executor(
-        ollama or OllamaClient(),
+        llm or LLMClient(),
         linkup or LinkupClient(),
         pdf_parser or PDFParser(),
     )
