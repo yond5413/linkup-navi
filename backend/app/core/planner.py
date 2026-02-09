@@ -4,6 +4,8 @@ from typing import Optional
 from app.services.llm import LLMClient, PlannerOutput, PlanStep
 from app.core.query_classifier import QueryType
 
+import re
+
 
 class Planner:
     def __init__(self, llm: LLMClient):
@@ -34,11 +36,21 @@ Always respond with a valid JSON object matching the provided schema."""
         query_type: str,
         file_context: dict[str, str],
         session_goal: str,
+        explicit_entities: Optional[list[str]] = None,
     ) -> PlannerOutput:
         context_summary = self._summarize_context(file_context, session_goal)
 
         # Get query-type specific instructions
         query_instructions = self._get_query_instructions(query_type)
+
+        # Build explicit entities instruction if provided
+        explicit_entities_instruction = ""
+        if explicit_entities:
+            explicit_entities_instruction = f"""
+EXPLICIT RESEARCH REQUEST:
+The user has explicitly requested research on these entities: {", ".join(explicit_entities)}
+You MUST include these entities in your entities_to_research list and set needs_linkup to true.
+"""
 
         prompt = f"""
 USER COMMAND: {user_goal}
@@ -48,11 +60,14 @@ QUERY TYPE: {query_type}
 AVAILABLE FILES & CONTEXT:
 {context_summary}
 
+{explicit_entities_instruction}
 INSTRUCTIONS:
 1. Infer the user's core Intent - what specific question are they trying to answer?
 2. Formulate 3-5 distinct execution steps appropriate for a {query_type} task.
 3. Determine if Linkup research is required (when external knowledge about entities would help).
 4. Identify any specific entities to research (companies, people, technologies, etc.).
+   - If explicit entities are provided above, prioritize those
+   - Also detect any additional relevant entities from the context
 
 {query_instructions}
 
@@ -113,7 +128,7 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
                 entities_to_research=result.get("entities_to_research", []),
             )
         except Exception as e:
-            return self._fallback_plan(user_goal, query_type)
+            return self._fallback_plan(user_goal, query_type, explicit_entities)
 
     def _get_query_instructions(self, query_type: str) -> str:
         """Get specific instructions based on query type."""
@@ -169,7 +184,10 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
         return "\n".join(lines) if lines else "No files uploaded"
 
     def _fallback_plan(
-        self, user_goal: str, query_type: str = "general_qa"
+        self,
+        user_goal: str,
+        query_type: str = "general_qa",
+        explicit_entities: Optional[list[str]] = None,
     ) -> PlannerOutput:
         """Create a fallback plan when LLM fails."""
         lower_goal = user_goal.lower()
@@ -241,29 +259,33 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
                 ),
             ]
 
-        # Detect if research is needed
-        needs_linkup = any(
-            word in lower_goal
-            for word in [
-                "company",
-                "corp",
-                "inc",
-                "llc",
-                "meeting with",
-                "who is",
-                "what is",
-            ]
-        )
+        # Use explicit entities if provided, otherwise auto-detect
+        if explicit_entities:
+            needs_linkup = True
+            entities = explicit_entities
+        else:
+            # Detect if research is needed
+            needs_linkup = any(
+                word in lower_goal
+                for word in [
+                    "company",
+                    "corp",
+                    "inc",
+                    "llc",
+                    "meeting with",
+                    "who is",
+                    "what is",
+                ]
+            )
 
-        # Extract entities
-        entities = []
-        import re
+            # Extract entities
+            entities = []
 
-        matches = re.findall(
-            r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*(?:\s+(?:Corp|Inc|LLC|Company))?)",
-            user_goal,
-        )
-        entities.extend([m for m in matches if len(m) > 2])
+            matches = re.findall(
+                r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*(?:\s+(?:Corp|Inc|LLC|Company))?)",
+                user_goal,
+            )
+            entities.extend([m for m in matches if len(m) > 2])
 
         return PlannerOutput(
             intent=user_goal,

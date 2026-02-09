@@ -1,7 +1,7 @@
 """Meeting preparation API routes with query classification."""
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Optional
+from typing import Optional, List
 
 from app.models.requests import PrepRequest, ClarifyRequest
 from app.models.responses import (
@@ -10,6 +10,8 @@ from app.models.responses import (
     DynamicResponse,
     ClarificationResponse,
     ClarificationOption,
+    ResearchMetadata,
+    ResearchSource,
 )
 from app.services.memory import SessionMemory
 from app.services.llm import LLMClient
@@ -24,6 +26,49 @@ from app.db.schema import SessionRepository
 
 
 router = APIRouter()
+
+
+def _build_research_metadata(
+    plan, execution_results: dict, explicit_entities: Optional[List[str]] = None
+) -> Optional[ResearchMetadata]:
+    """Build research metadata from execution results and plan."""
+
+    # Check if there was any research performed
+    research_results = {}
+    for step_id, result in execution_results.items():
+        if isinstance(result, dict) and "research" in result:
+            research_results.update(result["research"])
+
+    if not research_results:
+        return None
+
+    # Build sources from research results
+    sources = []
+    entities = []
+
+    for entity, info in research_results.items():
+        entities.append(entity)
+        if isinstance(info, dict):
+            # Get sources from the linkup response
+            for source in info.get("sources", []):
+                sources.append(
+                    ResearchSource(
+                        entity=entity,
+                        url=source.get("url", ""),
+                        title=source.get("name", entity),
+                        snippet=source.get("snippet", ""),
+                        favicon=source.get("favicon"),
+                    )
+                )
+
+    # Check if user explicitly requested research (if explicit_entities is None, it was auto)
+    is_auto = explicit_entities is None
+
+    return ResearchMetadata(
+        entities=entities or plan.entities_to_research,
+        sources=sources,
+        auto_researched=is_auto,
+    )
 
 
 @router.post("/prep")
@@ -78,9 +123,14 @@ async def prepare_meeting(
             long_term_context
         )
 
-    # Create plan with query type
+    # Create plan with query type and explicit research entities if provided
+    explicit_entities = request.research_entities if request.research_entities else None
     plan = await planner.plan(
-        enriched_goal, classification.query_type.value, all_file_contents, session_goal
+        enriched_goal,
+        classification.query_type.value,
+        all_file_contents,
+        session_goal,
+        explicit_entities,
     )
 
     # Execute with user goal for context
@@ -96,6 +146,11 @@ async def prepare_meeting(
     if execution_result.get("response", {}).get("raw_response"):
         vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
+    # Build research metadata
+    research_metadata = _build_research_metadata(
+        plan, execution_result["results"], explicit_entities
+    )
+
     return PrepResponse(
         session_id=session_id,
         intent=plan.intent,
@@ -104,6 +159,7 @@ async def prepare_meeting(
         results=execution_result["results"],
         response=DynamicResponse(**execution_result["response"]),
         evaluation=evaluation,
+        research_metadata=research_metadata,
     )
 
 
@@ -166,9 +222,14 @@ async def prepare_meeting_with_files(
             long_term_context
         )
 
-    # Create plan with query type
+    # Create plan with query type and explicit research entities if provided
+    explicit_entities = request.research_entities if request.research_entities else None
     plan = await planner.plan(
-        enriched_goal, classification.query_type.value, all_file_contents, session_goal
+        enriched_goal,
+        classification.query_type.value,
+        all_file_contents,
+        session_goal,
+        explicit_entities,
     )
 
     # Execute with user goal for context
@@ -184,6 +245,11 @@ async def prepare_meeting_with_files(
     if execution_result.get("response", {}).get("raw_response"):
         vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
+    # Build research metadata
+    research_metadata = _build_research_metadata(
+        plan, execution_result["results"], explicit_entities
+    )
+
     return PrepResponse(
         session_id=session_id,
         intent=plan.intent,
@@ -192,6 +258,7 @@ async def prepare_meeting_with_files(
         results=execution_result["results"],
         response=DynamicResponse(**execution_result["response"]),
         evaluation=evaluation,
+        research_metadata=research_metadata,
     )
 
 
@@ -230,9 +297,9 @@ async def clarify_query(request: ClarifyRequest):
             long_term_context
         )
 
-    # Create plan with user-confirmed query type
+    # Create plan with user-confirmed query type (no explicit entities in clarify flow)
     plan = await planner.plan(
-        enriched_goal, selected_type, all_file_contents, session_goal
+        enriched_goal, selected_type, all_file_contents, session_goal, None
     )
 
     # Execute with original command
@@ -251,6 +318,11 @@ async def clarify_query(request: ClarifyRequest):
     if execution_result.get("response", {}).get("raw_response"):
         vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
+    # Build research metadata (always auto-researched for clarify flow)
+    research_metadata = _build_research_metadata(
+        plan, execution_result["results"], None
+    )
+
     return PrepResponse(
         session_id=session_id,
         intent=plan.intent,
@@ -259,6 +331,7 @@ async def clarify_query(request: ClarifyRequest):
         results=execution_result["results"],
         response=DynamicResponse(**execution_result["response"]),
         evaluation=evaluation,
+        research_metadata=research_metadata,
     )
 
 

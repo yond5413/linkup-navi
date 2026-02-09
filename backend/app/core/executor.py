@@ -25,6 +25,9 @@ class ExecutionState:
 # In-memory storage for execution states
 _execution_states: dict[str, ExecutionState] = {}
 
+# In-memory storage for execution results
+_execution_results: dict[str, dict] = {}
+
 
 class Executor:
     def __init__(
@@ -65,10 +68,7 @@ class Executor:
             del _execution_states[session_id]
 
     async def run(
-        self, 
-        plan: PlannerOutput, 
-        file_contents: dict[str, str],
-        user_goal: str
+        self, plan: PlannerOutput, file_contents: dict[str, str], user_goal: str
     ) -> dict:
         """Execute the plan and generate a response."""
         results = {}
@@ -111,15 +111,12 @@ class Executor:
             user_goal=user_goal,
             query_type=plan.query_type,
             file_contents=file_contents,
-            step_results=results
+            step_results=results,
         )
 
         # Mark complete
         self._update_state(
-            "Complete", 
-            "Response generation completed successfully", 
-            1.0, 
-            complete=True
+            "Complete", "Response generation completed successfully", 1.0, complete=True
         )
 
         return {
@@ -194,9 +191,9 @@ class Executor:
         summaries = {}
         for name, content in file_contents.items():
             summary = self.llm.generate(
-                f"Summarize this document concisely (2-3 paragraphs):
+                f"""Summarize this document concisely (2-3 paragraphs):
 
-{content}",
+{content}""",
                 system="You are a professional document summarizer. Be concise and extract key points.",
             )
             summaries[name] = summary
@@ -270,7 +267,7 @@ Provide a structured synthesis covering main points, conclusions, and any decisi
         """Compare multiple documents."""
         if len(file_contents) < 2:
             return {"comparison": "Need at least 2 documents to compare"}
-        
+
         comparison = self.llm.generate(
             f"""Compare the following documents side-by-side:
 
@@ -313,18 +310,18 @@ Identify:
     ) -> dict:
         """
         Generate a dynamic response based on query type using appropriate template.
-        
+
         This replaces the hardcoded meeting briefing with query-specific responses.
         """
         # Get the appropriate template
         template = get_template_for_query_type(query_type)
-        
+
         # Aggregate results from steps
         summaries = []
         deadlines = []
         skills = []
         research_findings = []
-        
+
         for step_id, result in step_results.items():
             if "summaries" in result:
                 for name, summary in result["summaries"].items():
@@ -341,25 +338,43 @@ Identify:
                     answer = info.get("answer", "No research answer available.")
                     sources = info.get("sources", [])
                     source_links = ", ".join(
-                        [f"[{s.get('name', 'Source')}]({s.get('url', '#')})" for s in sources[:3]]
+                        [
+                            f"[{s.get('name', 'Source')}]({s.get('url', '#')})"
+                            for s in sources[:3]
+                        ]
                     )
-                    research_findings.append(f"**{entity}**: {answer}\n*Sources: {source_links}*")
+                    research_findings.append(
+                        f"**{entity}**: {answer}\n*Sources: {source_links}*"
+                    )
             if "key_terms" in result:
                 for name, terms in result["key_terms"].items():
                     summaries.append(f"### Contract Terms: {name}\n{terms}")
             if "comparison" in result:
                 summaries.append(f"### Comparison\n{result['comparison']}")
-        
+
         # Format content for template
-        summary_text = "\n\n".join(summaries) if summaries else "No document summaries available."
+        summary_text = (
+            "\n\n".join(summaries) if summaries else "No document summaries available."
+        )
         skills_text = "\n\n".join(skills) if skills else "No skills extracted."
-        research_text = "\n\n".join(research_findings) if research_findings else "No external research conducted."
-        
+        research_text = (
+            "\n\n".join(research_findings)
+            if research_findings
+            else "No external research conducted."
+        )
+
         # Combine file contents
-        file_content_text = "\n\n---\n\n".join(
-            [f"=== {name} ===\n{content}" for name, content in file_contents.items()]
-        ) if file_contents else "No files provided."
-        
+        file_content_text = (
+            "\n\n---\n\n".join(
+                [
+                    f"=== {name} ===\n{content}"
+                    for name, content in file_contents.items()
+                ]
+            )
+            if file_contents
+            else "No files provided."
+        )
+
         # Format template with variables
         prompt_data = template.format(
             user_goal=user_goal,
@@ -368,53 +383,56 @@ Identify:
             skills_text=skills_text,
             research_findings=research_text,
         )
-        
+
         # Generate response using LLM
         response_text = self.llm.generate(
             prompt_data["user"],
             system=prompt_data["system"],
         )
-        
+
         # Parse structured response
         parsed_response = self._parse_structured_response(
-            response_text, 
-            template.required_sections,
-            template.optional_sections
+            response_text, template.required_sections, template.optional_sections
         )
-        
+
+        # Add query type to response
+        parsed_response["query_type"] = query_type
+
         return parsed_response
 
     def _parse_structured_response(
-        self, 
-        response_text: str, 
+        self,
+        response_text: str,
         required_sections: list,
-        optional_sections: list = None
+        optional_sections: list = None,
     ) -> dict:
         """
         Parse LLM response into structured sections.
-        
+
         Expects markdown headers like:
         ## Section Name
         Content here...
         """
         optional_sections = optional_sections or []
         sections = {}
-        
+
         # Split by markdown headers
         # Pattern matches ## Header or ## Header (with optional spaces)
-        pattern = r'##\s+(.+?)\n'
+        pattern = r"##\s+(.+?)\n"
         parts = re.split(pattern, response_text)
-        
+
         # parts[0] is content before first header (if any)
         # parts[1] is first header, parts[2] is its content, etc.
-        
+
         if len(parts) > 1:
             for i in range(1, len(parts), 2):
                 if i < len(parts):
-                    header = parts[i].strip().lower().replace(" ", "_").replace("&", "and")
+                    header = (
+                        parts[i].strip().lower().replace(" ", "_").replace("&", "and")
+                    )
                     content = parts[i + 1].strip() if i + 1 < len(parts) else ""
                     sections[header] = content
-        
+
         # If no structured sections found, treat entire response as summary
         if not sections:
             sections["summary"] = response_text
@@ -424,25 +442,25 @@ Identify:
                 section_title = section.replace("_", " ").title()
                 if section_title.lower() in response_text.lower():
                     # Try to extract content after section mention
-                    pattern = rf'{section_title}[\s:]+(.+?)(?=\n\n|\Z)'
+                    pattern = rf"{section_title}[\s:]+(.+?)(?=\n\n|\Z)"
                     match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
                     if match:
                         sections[section] = match.group(1).strip()
-        
+
         # Ensure all required sections exist (even if empty)
         for section in required_sections:
             if section not in sections:
                 sections[section] = "No information available."
-        
+
         # Add optional sections if present
         for section in optional_sections:
             if section in sections:
                 continue  # Already captured
-        
+
         return {
             "sections": sections,
             "raw_response": response_text,
-            "structured": len(sections) > 1
+            "structured": len(sections) > 1,
         }
 
 
