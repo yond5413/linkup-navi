@@ -65,7 +65,7 @@ async def index_document(file_path: str, filename: str):
         if text:
             vector_memory = get_vector_memory_service()
             # Add chunks of text to memory if it's long
-            chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
+            chunk_size = 2000; overlap = 200; chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - overlap)]
             for chunk in chunks:
                 vector_memory.add_to_memory(f"Document '{filename}': {chunk}")
     except Exception as e:

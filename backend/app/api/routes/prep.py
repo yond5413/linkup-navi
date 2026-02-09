@@ -134,7 +134,7 @@ async def prepare_meeting(
     )
 
     # Execute with user goal for context
-    execution_result = await executor.run(plan, all_file_contents, command)
+    execution_result = await executor.run(plan, all_file_contents, enriched_goal)
 
     evaluation = await evaluator.evaluate_completion(
         command, plan, execution_result["results"], execution_result["response"]
@@ -143,8 +143,8 @@ async def prepare_meeting(
     await memory.set_goal(command)
 
     # Save response to long-term memory
-    if execution_result.get("response", {}).get("raw_response"):
-        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+    # if execution_result.get("response", {}).get("raw_response"):
+    # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
     # Build research metadata
     research_metadata = _build_research_metadata(
@@ -233,7 +233,7 @@ async def prepare_meeting_with_files(
     )
 
     # Execute with user goal for context
-    execution_result = await executor.run(plan, all_file_contents, command)
+    execution_result = await executor.run(plan, all_file_contents, enriched_goal)
 
     evaluation = await evaluator.evaluate_completion(
         command, plan, execution_result["results"], execution_result["response"]
@@ -242,8 +242,8 @@ async def prepare_meeting_with_files(
     await memory.set_goal(command)
 
     # Save response to long-term memory
-    if execution_result.get("response", {}).get("raw_response"):
-        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+    # if execution_result.get("response", {}).get("raw_response"):
+    # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
     # Build research metadata
     research_metadata = _build_research_metadata(
@@ -303,7 +303,7 @@ async def clarify_query(request: ClarifyRequest):
     )
 
     # Execute with original command
-    execution_result = await executor.run(plan, all_file_contents, original_command)
+    execution_result = await executor.run(plan, all_file_contents, enriched_goal)
 
     evaluation = await evaluator.evaluate_completion(
         original_command,
@@ -315,8 +315,8 @@ async def clarify_query(request: ClarifyRequest):
     await memory.set_goal(original_command)
 
     # Save response to long-term memory
-    if execution_result.get("response", {}).get("raw_response"):
-        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+    # if execution_result.get("response", {}).get("raw_response"):
+    # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
     # Build research metadata (always auto-researched for clarify flow)
     research_metadata = _build_research_metadata(
