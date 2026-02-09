@@ -1,0 +1,138 @@
+"""Planning module using Qwen for intent inference and goal decomposition."""
+
+from typing import Optional
+from app.services.ollama import OllamaClient, PlannerOutput, PlanStep
+
+
+class Planner:
+    def __init__(self, ollama: OllamaClient):
+        self.ollama = ollama
+
+    SYSTEM_PROMPT = """You are a professional meeting preparation assistant. Your job is to:
+1. Understand the user's goal
+2. Determine what information is needed
+3. Create a structured execution plan
+4. Identify if external research (Linkup) is needed
+
+Always respond with a JSON object matching the specified schema. Be concise and practical."""
+
+    async def plan(
+        self, user_goal: str, file_context: dict[str, str], session_goal: str
+    ) -> PlannerOutput:
+        context_summary = self._summarize_context(file_context, session_goal)
+
+        prompt = f"""
+User Goal: {user_goal}
+
+Context Available:
+{context_summary}
+
+Task:
+1. Identify the user's intent
+2. Create a step-by-step execution plan
+3. Determine if Linkup research is needed (true if company/entity names are mentioned)
+4. List any entities that should be researched
+
+Considerations:
+- Meeting prep: summarize agenda, extract deadlines, identify risks
+- Research needed: company names, people, or current events
+- Output: structured plan with clear steps
+"""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "intent": {
+                    "type": "string",
+                    "description": "Brief description of user's intent",
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step_id": {"type": "string"},
+                            "description": {"type": "string"},
+                            "action_type": {
+                                "type": "string",
+                                "enum": [
+                                    "summarize",
+                                    "extract_deadlines",
+                                    "research",
+                                    "synthesize",
+                                    "list_files",
+                                ],
+                            },
+                            "depends_on": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "parameters": {"type": "object"},
+                        },
+                    },
+                },
+                "needs_linkup": {"type": "boolean"},
+                "entities_to_research": {"type": "array", "items": {"type": "string"}},
+            },
+        }
+
+        try:
+            result = self.ollama.generate_json(prompt, schema, self.SYSTEM_PROMPT)
+            return PlannerOutput(
+                intent=result.get("intent", user_goal),
+                steps=[PlanStep(**s) for s in result.get("steps", [])],
+                needs_linkup=result.get("needs_linkup", False),
+                entities_to_research=result.get("entities_to_research", []),
+            )
+        except Exception as e:
+            return self._fallback_plan(user_goal)
+
+    def _summarize_context(
+        self, file_contents: dict[str, str], session_goal: str
+    ) -> str:
+        lines = []
+        if session_goal:
+            lines.append(f"Session goal: {session_goal}")
+        for name, content in file_contents.items():
+            preview = content[:200] + "..." if len(content) > 200 else content
+            lines.append(f"File '{name}':\n{preview}")
+        return "\n".join(lines) if lines else "No files uploaded"
+
+    def _fallback_plan(self, user_goal: str) -> PlannerOutput:
+        lower_goal = user_goal.lower()
+        steps = [
+            PlanStep(
+                step_id="step_1",
+                description="Summarize uploaded documents",
+                action_type="summarize",
+                depends_on=[],
+                parameters={},
+            ),
+        ]
+        needs_linkup = any(
+            word in lower_goal
+            for word in ["company", "corp", "inc", "llc", "meeting with"]
+        )
+        entities = []
+        if "acme" in lower_goal:
+            entities.append("Acme Corp")
+        if "company" in lower_goal or "corp" in lower_goal:
+            import re
+
+            matches = re.findall(
+                r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+(?:Corp|Inc|LLC))?)", user_goal
+            )
+            entities.extend(matches)
+
+        return PlannerOutput(
+            intent=user_goal,
+            steps=steps,
+            needs_linkup=needs_linkup,
+            entities_to_research=entities,
+        )
+
+
+def create_planner(ollama: Optional[OllamaClient] = None) -> Planner:
+    if ollama is None:
+        ollama = OllamaClient()
+    return Planner(ollama)
