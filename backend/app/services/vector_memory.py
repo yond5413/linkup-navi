@@ -16,7 +16,7 @@ class VectorMemoryService:
         self.index_file = self.memory_path / f"{index_name}.index"
         self.metadata_file = self.memory_path / f"{index_name}.pkl"
         
-        self.co = cohere.ClientV2(settings.cohere_api_key) if settings.cohere_api_key else None
+        self.co = cohere.Client(settings.cohere_api_key) if settings.cohere_api_key else None
         self.dimension = 1024  # Default for embed-english-v3.0
         
         self.index = None
@@ -56,7 +56,8 @@ class VectorMemoryService:
             embedding_types=["float"]
         )
         
-        embedding = np.array(response.embeddings.float_0).astype("float32")
+        # In Cohere 5.x, response.embeddings.float_ is a list of lists
+        embedding = np.array(response.embeddings.float_).astype("float32")
         
         # Add to FAISS index
         self.index.add(embedding)
@@ -81,7 +82,7 @@ class VectorMemoryService:
             embedding_types=["float"]
         )
         
-        query_embedding = np.array(response.embeddings.float_0).astype("float32")
+        query_embedding = np.array(response.embeddings.float_).astype("float32")
         
         # Search index
         distances, indices = self.index.search(query_embedding, top_k)

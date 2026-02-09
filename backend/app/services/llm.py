@@ -20,6 +20,7 @@ class PlanStep(BaseModel):
 
 class PlannerOutput(BaseModel):
     intent: str
+    query_type: str = "general_qa"  # Type of query (resume_review, meeting_prep, etc.)
     steps: List[PlanStep]
     needs_linkup: bool
     entities_to_research: List[str] = []
@@ -37,7 +38,7 @@ class LLMClient:
     def __init__(self):
         self.settings = get_settings()
         self.provider = self.settings.llm_provider
-        
+
         if self.provider == "openrouter":
             self.client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
@@ -56,9 +57,7 @@ class LLMClient:
 
         if self.provider == "openrouter":
             response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                **kwargs
+                model=self.model, messages=messages, **kwargs
             )
             return response.choices[0].message.content
         else:
@@ -73,14 +72,12 @@ class LLMClient:
             # Use native JSON mode for better reliability
             json_prompt = f"{prompt}\n\nRespond only with a JSON object matching this schema: {json.dumps(schema)}"
             content = self.generate(
-                json_prompt, 
-                system=system, 
-                response_format={"type": "json_object"}
+                json_prompt, system=system, response_format={"type": "json_object"}
             )
         else:
             json_prompt = f"{prompt}\n\nRespond in valid JSON matching this schema: {json.dumps(schema)}"
             content = self.generate(json_prompt, system=system)
-        
+
         try:
             return json.loads(content)
         except json.JSONDecodeError:

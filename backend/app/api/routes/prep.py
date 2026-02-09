@@ -1,17 +1,25 @@
-"""Meeting preparation API routes."""
+"""Meeting preparation API routes with query classification."""
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional
 
-from app.models.requests import PrepRequest
-from app.models.responses import PrepResponse, BriefingResponse
+from app.models.requests import PrepRequest, ClarifyRequest
+from app.models.responses import (
+    PrepResponse,
+    BriefingResponse,
+    DynamicResponse,
+    ClarificationResponse,
+    ClarificationOption,
+)
 from app.services.memory import SessionMemory
 from app.services.llm import LLMClient
 from app.services.linkup import LinkupClient
 from app.services.pdf_parser import PDFParser
 from app.core.planner import Planner
-from app.core.executor import Executor
+from app.core.executor import Executor, ExecutionState
 from app.core.evaluator import Evaluator
+from app.core.query_classifier import classify_query, QueryClassification
+from app.services.vector_memory import get_vector_memory_service
 from app.db.schema import SessionRepository
 
 
@@ -22,7 +30,88 @@ router = APIRouter()
 async def prepare_meeting(
     request: PrepRequest, background_tasks: BackgroundTasks = None
 ):
-    """Main endpoint: Prepare for a meeting based on command and uploaded files."""
+    """Prepare response based on command (no files required)."""
+
+    session_id = request.session_id
+    command = request.command
+
+    session = await SessionRepository.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    memory = SessionMemory(session_id)
+
+    # Classify the query first
+    file_names = []  # No files for this endpoint
+    classification = classify_query(command, file_names)
+
+    # If clarification needed, return early with options
+    if classification.needs_clarification:
+        return ClarificationResponse(
+            status="needs_clarification",
+            message=classification.clarification_message,
+            suggested_types=[
+                ClarificationOption(**opt)
+                for opt in (classification.suggested_types or [])
+            ],
+            original_query=command,
+        )
+
+    llm = LLMClient()
+    planner = Planner(llm)
+    executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
+    evaluator = Evaluator(llm)
+
+    vector_memory = get_vector_memory_service()
+    long_term_context = vector_memory.query_memory(command)
+
+    session_goal = session.user_goal or ""
+    all_file_contents = {}  # No files for this endpoint
+
+    # Clear any previous execution state
+    Executor.clear_execution_status(session_id)
+
+    # Enrich user goal with long-term context if available
+    enriched_goal = command
+    if long_term_context:
+        enriched_goal += f"\n\nLong-term Memory Context:\n" + "\n".join(
+            long_term_context
+        )
+
+    # Create plan with query type
+    plan = await planner.plan(
+        enriched_goal, classification.query_type.value, all_file_contents, session_goal
+    )
+
+    # Execute with user goal for context
+    execution_result = await executor.run(plan, all_file_contents, command)
+
+    evaluation = await evaluator.evaluate_completion(
+        command, plan, execution_result["results"], execution_result["response"]
+    )
+
+    await memory.set_goal(command)
+
+    # Save response to long-term memory
+    if execution_result.get("response", {}).get("raw_response"):
+        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+
+    return PrepResponse(
+        session_id=session_id,
+        intent=plan.intent,
+        query_type=plan.query_type,
+        plan=plan.model_dump(),
+        results=execution_result["results"],
+        response=DynamicResponse(**execution_result["response"]),
+        evaluation=evaluation,
+    )
+
+
+@router.post("/prep-with-files")
+async def prepare_meeting_with_files(
+    request: PrepRequest, background_tasks: BackgroundTasks = None
+):
+    """Prepare response based on command and uploaded files (files required)."""
 
     session_id = request.session_id
     command = request.command
@@ -41,28 +130,134 @@ async def prepare_meeting(
             status_code=400, detail="No files uploaded for this session"
         )
 
+    # Classify the query with file context
+    file_names = list(all_file_contents.keys())
+    classification = classify_query(command, file_names)
+
+    # If clarification needed, return early with options
+    if classification.needs_clarification:
+        return ClarificationResponse(
+            status="needs_clarification",
+            message=classification.clarification_message,
+            suggested_types=[
+                ClarificationOption(**opt)
+                for opt in (classification.suggested_types or [])
+            ],
+            original_query=command,
+        )
+
     llm = LLMClient()
     planner = Planner(llm)
-    executor = Executor(llm, LinkupClient(), PDFParser())
+    executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
     evaluator = Evaluator(llm)
 
-    session_goal = session.user_goal or ""
-    plan = await planner.plan(command, all_file_contents, session_goal)
+    vector_memory = get_vector_memory_service()
+    long_term_context = vector_memory.query_memory(command)
 
-    execution_result = await executor.run(plan, all_file_contents)
+    session_goal = session.user_goal or ""
+
+    # Clear any previous execution state
+    Executor.clear_execution_status(session_id)
+
+    # Enrich user goal with long-term context if available
+    enriched_goal = command
+    if long_term_context:
+        enriched_goal += f"\n\nLong-term Memory Context:\n" + "\n".join(
+            long_term_context
+        )
+
+    # Create plan with query type
+    plan = await planner.plan(
+        enriched_goal, classification.query_type.value, all_file_contents, session_goal
+    )
+
+    # Execute with user goal for context
+    execution_result = await executor.run(plan, all_file_contents, command)
 
     evaluation = await evaluator.evaluate_completion(
-        command, plan, execution_result["results"], execution_result["briefing"]
+        command, plan, execution_result["results"], execution_result["response"]
     )
 
     await memory.set_goal(command)
 
+    # Save response to long-term memory
+    if execution_result.get("response", {}).get("raw_response"):
+        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+
     return PrepResponse(
         session_id=session_id,
         intent=plan.intent,
+        query_type=plan.query_type,
         plan=plan.model_dump(),
         results=execution_result["results"],
-        briefing=BriefingResponse(**execution_result["briefing"]),
+        response=DynamicResponse(**execution_result["response"]),
+        evaluation=evaluation,
+    )
+
+
+@router.post("/clarify")
+async def clarify_query(request: ClarifyRequest):
+    """Re-run query with user-selected clarification."""
+
+    session_id = request.session_id
+    original_command = request.original_command
+    selected_type = request.selected_type
+
+    session = await SessionRepository.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    memory = SessionMemory(session_id)
+    all_file_contents = await memory.get_all_file_contents()
+
+    llm = LLMClient()
+    planner = Planner(llm)
+    executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
+    evaluator = Evaluator(llm)
+
+    vector_memory = get_vector_memory_service()
+    long_term_context = vector_memory.query_memory(original_command)
+
+    session_goal = session.user_goal or ""
+
+    # Clear any previous execution state
+    Executor.clear_execution_status(session_id)
+
+    # Enrich user goal
+    enriched_goal = original_command
+    if long_term_context:
+        enriched_goal += f"\n\nLong-term Memory Context:\n" + "\n".join(
+            long_term_context
+        )
+
+    # Create plan with user-confirmed query type
+    plan = await planner.plan(
+        enriched_goal, selected_type, all_file_contents, session_goal
+    )
+
+    # Execute with original command
+    execution_result = await executor.run(plan, all_file_contents, original_command)
+
+    evaluation = await evaluator.evaluate_completion(
+        original_command,
+        plan,
+        execution_result["results"],
+        execution_result["response"],
+    )
+
+    await memory.set_goal(original_command)
+
+    # Save response to long-term memory
+    if execution_result.get("response", {}).get("raw_response"):
+        vector_memory.add_to_memory(execution_result["response"]["raw_response"])
+
+    return PrepResponse(
+        session_id=session_id,
+        intent=plan.intent,
+        query_type=plan.query_type,
+        plan=plan.model_dump(),
+        results=execution_result["results"],
+        response=DynamicResponse(**execution_result["response"]),
         evaluation=evaluation,
     )
 
@@ -131,3 +326,27 @@ async def delete_session(session_id: str):
 
     await SessionRepository.delete_session(session_id)
     return {"message": "Session deleted successfully"}
+
+
+@router.get("/sessions/{session_id}/execution-status")
+async def get_execution_status(session_id: str):
+    """Get the current execution status for a session."""
+    status = Executor.get_execution_status(session_id)
+
+    if not status:
+        return {
+            "session_id": session_id,
+            "current_step": "Waiting",
+            "reasoning": "No active execution",
+            "progress": 0.0,
+            "complete": False,
+        }
+
+    return {
+        "session_id": status.session_id,
+        "current_step": status.current_step,
+        "reasoning": status.reasoning,
+        "progress": status.progress,
+        "complete": status.complete,
+        "timestamp": status.timestamp.isoformat() if status.timestamp else None,
+    }

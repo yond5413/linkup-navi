@@ -1,6 +1,6 @@
 """File upload and management API routes."""
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from pathlib import Path
 import shutil
 import uuid
@@ -8,6 +8,8 @@ import uuid
 from app.models.requests import UploadRequest
 from app.models.responses import UploadResponse
 from app.services.memory import SessionMemory
+from app.services.vector_memory import get_vector_memory_service
+from app.services.pdf_parser import PDFParser
 from app.db.schema import SessionRepository
 
 
@@ -21,6 +23,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/upload")
 async def upload_file(
     session_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ):
     """Upload a file to a session."""
@@ -44,12 +47,29 @@ async def upload_file(
         file_type=file_ext.lstrip("."),
     )
 
+    # Add background task for indexing in vector memory
+    if file_ext == ".pdf":
+        background_tasks.add_task(index_document, str(file_path), file.filename)
+
     return UploadResponse(
         file_id=file_id,
         file_name=file.filename,
         session_id=session_id,
         message="File uploaded successfully",
     )
+
+async def index_document(file_path: str, filename: str):
+    """Extract text from PDF and add to long-term memory."""
+    try:
+        text = PDFParser.extract_text(file_path)
+        if text:
+            vector_memory = get_vector_memory_service()
+            # Add chunks of text to memory if it's long
+            chunks = [text[i:i+2000] for i in range(0, len(text), 2000)]
+            for chunk in chunks:
+                vector_memory.add_to_memory(f"Document '{filename}': {chunk}")
+    except Exception as e:
+        print(f"Error indexing document {filename}: {e}")
 
 
 @router.get("/sessions/{session_id}/files")

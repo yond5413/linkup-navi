@@ -13,7 +13,9 @@ Thumbs.db
 
 # Node.js and Next.js
 node_modules/
+**/node_modules/
 .next/
+**/.next/
 out/
 build/
 dist/
@@ -23,6 +25,7 @@ coverage/
 
 # Python / Backend
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 venv/
@@ -32,6 +35,7 @@ env/
 .mypy_cache/
 .ruff_cache/
 *.spec
+.ipynb_checkpoints/
 
 # Environment Variables
 .env
@@ -40,14 +44,19 @@ env/
 .env.test.local
 .env.production.local
 env.local
+**/.env*
 
 # Application Specific / AI Data
 backend/uploads/
 uploads/
+backend/memory/
+backend/backend.db
 *.pth
 *.pt
 *.h5
 *.onnx
+*.index
+*.pkl
 models/
 data/
 db.sqlite3

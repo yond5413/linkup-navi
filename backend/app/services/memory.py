@@ -32,7 +32,7 @@ class SessionMemory:
         return await SessionFileRepository.get_files_by_session(self.session_id)
 
     async def set_goal(self, goal: str):
-        await SessionMemory.update_goal(self.session_id, goal)
+        await SessionRepository.update_goal(self.session_id, goal)
 
     async def get_goal(self) -> str:
         session = await SessionRepository.get_session(self.session_id)
