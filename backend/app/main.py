@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.api.routes import prep, files
+from app.api import memory
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ app.add_middleware(
 
 app.include_router(prep.router, prefix="/api/v1")
 app.include_router(files.router, prefix="/api/v1")
+app.include_router(memory.router, prefix="/api/v1")
 
 
 @app.get("/health")

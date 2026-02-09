@@ -27,10 +27,19 @@ class Settings(BaseSettings):
 
     database_path: str = "backend.db"
     uploads_dir: str = "uploads"
+    memory_dir: str = "memory"
+
+    cohere_api_key: Optional[str] = None
 
     @property
     def db_path(self) -> Path:
         return Path(self.database_path)
+
+    @property
+    def memory_path(self) -> Path:
+        path = Path(self.memory_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def uploads_path(self) -> Path:
@@ -39,7 +48,7 @@ class Settings(BaseSettings):
         return path
 
     class Config:
-        env_file = ".env", ".env.local"
+        env_file = ".env", ".env.local", "env.local"
         env_file_encoding = "utf-8"
 
 
