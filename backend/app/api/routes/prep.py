@@ -44,7 +44,7 @@ async def prepare_meeting(
     llm = LLMClient()
     planner = Planner(llm)
     executor = Executor(llm, LinkupClient(), PDFParser())
-    evaluator = Evaluator()
+    evaluator = Evaluator(llm)
 
     session_goal = session.user_goal or ""
     plan = await planner.plan(command, all_file_contents, session_goal)

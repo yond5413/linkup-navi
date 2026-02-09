@@ -47,7 +47,7 @@ class LLMClient:
         else:
             self.model = self.settings.ollama_model
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> str:
+    def generate(self, prompt: str, system: Optional[str] = None, **kwargs) -> str:
         """Generate text using the configured provider."""
         messages = []
         if system:
@@ -58,6 +58,7 @@ class LLMClient:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                **kwargs
             )
             return response.choices[0].message.content
         else:
@@ -68,9 +69,17 @@ class LLMClient:
         self, prompt: str, schema: Dict[str, Any], system: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate JSON using the configured provider."""
-        json_prompt = f"{prompt}\n\nRespond in valid JSON matching this schema: {json.dumps(schema)}"
-        
-        content = self.generate(json_prompt, system=system)
+        if self.provider == "openrouter":
+            # Use native JSON mode for better reliability
+            json_prompt = f"{prompt}\n\nRespond only with a JSON object matching this schema: {json.dumps(schema)}"
+            content = self.generate(
+                json_prompt, 
+                system=system, 
+                response_format={"type": "json_object"}
+            )
+        else:
+            json_prompt = f"{prompt}\n\nRespond in valid JSON matching this schema: {json.dumps(schema)}"
+            content = self.generate(json_prompt, system=system)
         
         try:
             return json.loads(content)

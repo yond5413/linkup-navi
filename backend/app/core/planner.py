@@ -8,13 +8,16 @@ class Planner:
     def __init__(self, llm: LLMClient):
         self.llm = llm
 
-    SYSTEM_PROMPT = """You are a professional meeting preparation assistant. Your job is to:
-1. Understand the user's goal
-2. Determine what information is needed
-3. Create a structured execution plan
-4. Identify if external research (Linkup) is needed
+    SYSTEM_PROMPT = """You are an advanced AGI-inspired meeting preparation assistant. 
+Your primary directive is to transform a vague user goal into a concrete, executable plan.
 
-Always respond with a JSON object matching the specified schema. Be concise and practical."""
+Guidelines:
+1. DECOMPOSE: Break the goal into logical steps (Summarization -> Research -> Synthesis).
+2. CONTEXTUALIZE: Use the provided document previews and session context to inform the plan.
+3. KNOWLEDGE GAP: If a company, person, or technical term is mentioned, ALWAYS include a 'research' step using Linkup.
+4. ACTIONABLE: Ensure the final step is ALWAYS 'synthesize' to create the briefing.
+
+Always respond with a valid JSON object matching the provided schema."""
 
     async def plan(
         self, user_goal: str, file_context: dict[str, str], session_goal: str
@@ -22,21 +25,23 @@ Always respond with a JSON object matching the specified schema. Be concise and 
         context_summary = self._summarize_context(file_context, session_goal)
 
         prompt = f"""
-User Goal: {user_goal}
+USER COMMAND: {user_goal}
 
-Context Available:
+AVAILABLE FILES & CONTEXT:
 {context_summary}
 
-Task:
-1. Identify the user's intent
-2. Create a step-by-step execution plan
-3. Determine if Linkup research is needed (true if company/entity names are mentioned)
-4. List any entities that should be researched
+INSTRUCTIONS:
+1. Infer the user's core Intent.
+2. Formulate 3-5 distinct execution steps.
+3. Determine if Linkup research is required (highly recommended for any entity research).
+4. Identify entities to search.
 
-Considerations:
-- Meeting prep: summarize agenda, extract deadlines, identify risks
-- Research needed: company names, people, or current events
-- Output: structured plan with clear steps
+REQUIRED STEPS for Meeting Prep:
+- List/Verify Files
+- Extract Deadlines & Obligations
+- Summarize Key Content
+- Research Entities (if any)
+- Synthesize Final Briefing
 """
 
         schema = {

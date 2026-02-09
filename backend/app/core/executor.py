@@ -112,7 +112,7 @@ Include: agenda summary, key deadlines, risks/considerations, and actionable ite
             if "deadlines" in result:
                 all_deadlines.extend(result["deadlines"])
             if "synthesis" in result:
-                summary_parts.append(result["synthesis"]["synthesis"])
+                summary_parts.append(result["synthesis"])
             if "research" in result:
                 research_parts = []
                 for entity, info in result["research"].items():
