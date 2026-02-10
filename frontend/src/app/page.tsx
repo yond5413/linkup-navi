@@ -16,6 +16,9 @@ import {
   getExecutionStatus,
   transformResponse,
   isClarificationResponse,
+  getSessionMessages,
+  getSessionOutput,
+  transformPersistedOutput,
   ApiResponse,
 } from "@/lib/api";
 
@@ -62,8 +65,9 @@ export default function Home() {
         setOutput(null);
       }
     } catch (err) {
-      setError("Failed to initialize session");
-      localStorage.removeItem("linkup_session_id");
+      console.error("Session init failed:", err);
+      // Only clear if strictly necessary, or maybe just start fresh
+      // localStorage.removeItem("linkup_session_id");
     }
   };
 
@@ -91,7 +95,12 @@ export default function Home() {
     setMessages([]);
 
     try {
-      const session = await getSession(id);
+      const [session, loadedMessages, loadedOutput] = await Promise.all([
+        getSession(id),
+        getSessionMessages(id),
+        getSessionOutput(id)
+      ]);
+
       setFiles(
         session.files.map((f) => ({
           name: f.file_name,
@@ -99,6 +108,26 @@ export default function Home() {
           type: f.file_type,
         }))
       );
+
+      // Hydrate messages
+      if (loadedMessages && loadedMessages.length > 0) {
+        setMessages(loadedMessages.map(msg => ({
+          id: msg.id,
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          type: (msg.type as any) || "text",
+          status: null
+        })));
+      }
+
+      // Hydrate output
+      if (loadedOutput) {
+        const transformed = transformPersistedOutput(loadedOutput);
+        if (transformed) {
+          setOutput(transformed);
+        }
+      }
+
     } catch (err) {
       console.error("Failed to load session:", err);
     }

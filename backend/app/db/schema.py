@@ -61,6 +61,30 @@ class Task:
         return asdict(self)
 
 
+@dataclass
+class SessionMessage:
+    id: str
+    session_id: str
+    role: str  # "user" or "assistant"
+    content: str
+    msg_type: str  # "text", "status", "clarification"
+    created_at: str
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass
+class SessionOutput:
+    id: str
+    session_id: str
+    output_json: str  # JSON string of the full output
+    created_at: str
+
+    def to_dict(self):
+        return asdict(self)
+
+
 DATABASE_PATH = get_settings().db_path
 
 
@@ -103,6 +127,26 @@ async def init_db():
             inferred_intent TEXT NOT NULL,
             tools_used TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS session_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            msg_type TEXT NOT NULL DEFAULT 'text',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS session_outputs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            output_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
@@ -411,3 +455,93 @@ class TaskRepository:
         )
         await db.commit()
         await db.close()
+
+    @staticmethod
+    async def update_task(task_id: str, inferred_intent: str, tools_used: str):
+        db = await get_connection()
+        await db.execute(
+            "UPDATE tasks SET inferred_intent = ?, tools_used = ? WHERE id = ?",
+            (inferred_intent, tools_used, task_id),
+        )
+        await db.commit()
+        await db.close()
+
+
+class MessageRepository:
+    @staticmethod
+    async def save_message(
+        session_id: str, role: str, content: str, msg_type: str = "text"
+    ) -> SessionMessage:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        msg_id = str(uuid.uuid4())
+        msg = SessionMessage(
+            id=msg_id,
+            session_id=session_id,
+            role=role,
+            content=content,
+            msg_type=msg_type,
+            created_at=now,
+        )
+        db = await get_connection()
+        await db.execute(
+            "INSERT INTO session_messages (id, session_id, role, content, msg_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (msg.id, msg.session_id, msg.role, msg.content, msg.msg_type, msg.created_at),
+        )
+        await db.commit()
+        await db.close()
+        return msg
+
+    @staticmethod
+    async def get_messages(session_id: str) -> list[dict]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, role, content, msg_type, created_at FROM session_messages WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        await db.close()
+        return [
+            {
+                "id": row[0],
+                "role": row[2],
+                "content": row[3],
+                "type": row[4],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    async def save_output(session_id: str, output_json: str) -> SessionOutput:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        output_id = str(uuid.uuid4())
+        output = SessionOutput(
+            id=output_id,
+            session_id=session_id,
+            output_json=output_json,
+            created_at=now,
+        )
+        db = await get_connection()
+        # Upsert: delete old output for this session and insert new one
+        await db.execute(
+            "DELETE FROM session_outputs WHERE session_id = ?", (session_id,)
+        )
+        await db.execute(
+            "INSERT INTO session_outputs (id, session_id, output_json, created_at) VALUES (?, ?, ?, ?)",
+            (output.id, output.session_id, output.output_json, output.created_at),
+        )
+        await db.commit()
+        await db.close()
+        return output
+
+    @staticmethod
+    async def get_latest_output(session_id: str) -> Optional[str]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT output_json FROM session_outputs WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        await db.close()
+        if row:
+            return row[0]
+        return None

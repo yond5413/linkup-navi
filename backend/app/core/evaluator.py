@@ -18,12 +18,12 @@ class Evaluator:
 Goal: {goal}
 Plan: {plan.model_dump_json()}
 Results Summary: {list(results.keys())}
-Final Briefing: {briefing.get('actionable_briefing', 'N/A')}
+Final Response: {briefing.get('raw_response', briefing.get('actionable_briefing', 'N/A'))[:2000]}
 
-As an impartial evaluator, analyze if the briefing successfully accomplishes the user's goal.
+As an impartial evaluator, analyze if the response successfully accomplishes the user's goal.
 Consider:
 1. Did we execute all necessary steps?
-2. Is the briefing professional and actionable?
+2. Is the response professional and actionable?
 3. Did we miss any entities mentioned in the goal?
 """
 

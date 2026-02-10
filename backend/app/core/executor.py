@@ -17,6 +17,7 @@ class ExecutionState:
     session_id: str
     current_step: str = ""
     reasoning: str = ""
+    thought: str = ""  # The agent's current thought
     progress: float = 0.0
     complete: bool = False
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -43,7 +44,7 @@ class Executor:
         self.session_id = session_id
 
     def _update_state(
-        self, step: str, reasoning: str, progress: float, complete: bool = False
+        self, step: str, reasoning: str, progress: float, thought: str = "", complete: bool = False
     ):
         """Update execution state for the current session."""
         if self.session_id:
@@ -51,6 +52,7 @@ class Executor:
                 session_id=self.session_id,
                 current_step=step,
                 reasoning=reasoning,
+                thought=thought,
                 progress=progress,
                 complete=complete,
                 timestamp=datetime.now(timezone.utc),
@@ -85,9 +87,11 @@ class Executor:
                 base_progress = 0.2 + (idx / total_steps) * 0.6
 
                 # Update state before executing step
-                step_reasoning = self._get_step_reasoning(step)
                 self._update_state(
-                    self._get_step_display_name(step), step_reasoning, base_progress
+                    self._get_step_display_name(step),
+                    self._get_step_reasoning(step),
+                    base_progress,
+                    thought=step.thought,
                 )
 
                 results[step.step_id] = await self._execute_step(step, file_contents)
@@ -97,6 +101,7 @@ class Executor:
                     self._get_step_display_name(step),
                     f"Completed {self._get_step_display_name(step)}",
                     base_progress + (0.6 / total_steps),
+                    thought=f"I have successfully finished {self._get_step_display_name(step).lower()}.",
                 )
 
         # Phase 5: Synthesizing (80-100%)

@@ -4,6 +4,7 @@ export interface ExecutionStatus {
   session_id: string;
   current_step: string;
   reasoning: string;
+  thought: string;
   progress: number;
   complete: boolean;
   timestamp?: string;
@@ -200,6 +201,42 @@ export async function getExecutionStatus(sessionId: string): Promise<ExecutionSt
   return res.json();
 }
 
+// Output persistence API
+export async function getSessionMessages(sessionId: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
+  if (!res.ok) throw new Error("Failed to fetch session messages");
+  const data = await res.json();
+  return data.messages;
+}
+
+export async function getSessionOutput(sessionId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/output`);
+  if (!res.ok) throw new Error("Failed to fetch session output");
+  const data = await res.json();
+  return data.output;
+}
+
+export function transformPersistedOutput(data: any) {
+  if (!data) return null;
+
+  // Transform sections record to array
+  const sections = Object.entries(data.sections || {}).map(([key, content]) => ({
+    id: key,
+    title: formatSectionTitle(key),
+    content: content as string,
+  }));
+
+  return {
+    query_type: data.query_type,
+    query_type_label: formatQueryTypeLabel(data.query_type),
+    thought: data.thought || "",
+    sections,
+    raw_response: data.raw_response,
+    structured: data.structured,
+    research_metadata: data.research_metadata,
+  };
+}
+
 export async function getAllFiles(): Promise<Array<{ id: string; session_id: string; file_name: string; file_type: string; uploaded_at: string }>> {
   const res = await fetch(`${API_BASE}/knowledge/files`);
   if (!res.ok) throw new Error("Failed to fetch knowledge base files");
@@ -278,9 +315,13 @@ export function transformResponse(response: PrepResponse) {
     content,
   }));
 
+  // Plan-level reasoning (from orchestrator)
+  const planThought = (response as any).plan?.thought || "";
+
   return {
     query_type: dynamicResponse.query_type,
     query_type_label: formatQueryTypeLabel(dynamicResponse.query_type),
+    thought: planThought,
     sections,
     raw_response: dynamicResponse.raw_response,
     structured: dynamicResponse.structured,

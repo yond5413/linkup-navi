@@ -23,6 +23,7 @@ export interface ResponseSection {
 export interface DynamicOutput {
   query_type: string;
   query_type_label: string;
+  thought?: string; // High-level reasoning
   sections: ResponseSection[];
   raw_response: string;
   structured: boolean;
@@ -68,6 +69,7 @@ export interface ExecutionStatus {
   session_id: string;
   current_step: string;
   reasoning: string;
+  thought: string; // The agent's current internal thought
   progress: number;
   complete: boolean;
   timestamp?: string;
@@ -79,7 +81,7 @@ export interface ClarificationOption {
   confidence: number;
 }
 
-export type ExecutionStep = 
+export type ExecutionStep =
   | "Planning"
   | "Analyzing documents"
   | "Extracting deadlines"

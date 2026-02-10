@@ -16,10 +16,11 @@ Your primary directive is to transform user goals into concrete, executable plan
 
 Guidelines:
 1. UNDERSTAND: Identify the user's core question or task
-2. DECOMPOSE: Break the goal into logical steps based on query type
-3. CONTEXTUALIZE: Use document content to inform what steps are needed
-4. KNOWLEDGE GAP: Include research steps when external information would help
-5. ACTIONABLE: Always end with a synthesis step that answers the user's question
+2. REASON: Explain your high-level strategy for tackling the request in the 'thought' field
+3. DECOMPOSE: Break the goal into logical steps based on query type
+4. CONTEXTUALIZE: Use document content to inform what steps are needed
+5. KNOWLEDGE GAP: Include research steps when external information would help
+6. ACTIONABLE: Always end with a synthesis step that answers the user's question
 
 Adapt your plan based on the query type:
 - Resume/Candidate Review: Focus on evaluation, skills extraction, fit assessment
@@ -81,6 +82,10 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
                     "type": "string",
                     "description": "Brief description of user's specific intent/question",
                 },
+                "thought": {
+                    "type": "string",
+                    "description": "Explaining the strategy for solving this user's goal",
+                },
                 "query_type": {
                     "type": "string",
                     "description": "Confirmed query type",
@@ -92,6 +97,10 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
                         "properties": {
                             "step_id": {"type": "string"},
                             "description": {"type": "string"},
+                            "thought": {
+                                "type": "string",
+                                "description": "Why this specific step is necessary for the goal",
+                            },
                             "action_type": {
                                 "type": "string",
                                 "enum": [
@@ -122,6 +131,7 @@ The final step should ALWAYS be 'synthesize' to generate the response that direc
             result = self.llm.generate_json(prompt, schema, self.SYSTEM_PROMPT)
             return PlannerOutput(
                 intent=result.get("intent", user_goal),
+                thought=result.get("thought", ""),
                 query_type=result.get("query_type", query_type),
                 steps=[PlanStep(**s) for s in result.get("steps", [])],
                 needs_linkup=result.get("needs_linkup", False),

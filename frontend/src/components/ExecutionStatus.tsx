@@ -68,6 +68,13 @@ export function ExecutionStatusDisplay({ status }: ExecutionStatusProps) {
               {status.reasoning}
             </p>
           )}
+          {status.thought && (
+            <div className="mt-2 pl-3 border-l-2 border-purple-500/40">
+              <p className="text-purple-300/80 text-xs italic animate-in fade-in duration-700">
+                💭 {status.thought}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -80,13 +87,12 @@ export function ExecutionStatusDisplay({ status }: ExecutionStatusProps) {
           return (
             <div
               key={step}
-              className={`flex items-center gap-3 text-sm transition-colors duration-300 ${
-                isCurrent
+              className={`flex items-center gap-3 text-sm transition-colors duration-300 ${isCurrent
                   ? "text-blue-400"
                   : isCompleted
-                  ? "text-slate-300"
-                  : "text-slate-600"
-              }`}
+                    ? "text-slate-300"
+                    : "text-slate-600"
+                }`}
               style={{ animationDelay: `${index * 100}ms` }}
             >
               {isCompleted ? (

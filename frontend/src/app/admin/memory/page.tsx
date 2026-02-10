@@ -92,7 +92,7 @@ export default function AdminMemoryPage() {
   if (loading) {
     return (
       <div className="min-h-screen">
-        <div className="pr-16 min-h-screen p-8">
+        <div className="min-h-screen p-8">
           <div className="glass-card rounded-xl p-8 animate-pulse max-w-6xl">
             <div className="h-6 bg-white/10 rounded w-1/4 mb-4"></div>
             <div className="space-y-3">
@@ -110,7 +110,7 @@ export default function AdminMemoryPage() {
   if (error && !stats) {
     return (
       <div className="min-h-screen">
-        <div className="pr-16 min-h-screen p-8">
+        <div className="min-h-screen p-8">
           <div className="glass-card rounded-xl p-8 text-center max-w-6xl mx-auto">
             <AlertTriangle className="h-12 w-12 text-amber-400 mx-auto mb-4" />
             <p className="text-red-400">Error: {error}</p>
@@ -124,7 +124,7 @@ export default function AdminMemoryPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="pr-16 min-h-screen p-8">
+      <div className="min-h-screen p-8">
         <div className="max-w-6xl mx-auto space-y-8">
           <div className="flex items-center justify-between">
             <div>

@@ -14,12 +14,14 @@ class PlanStep(BaseModel):
     step_id: str
     description: str
     action_type: str
+    thought: str = ""  # LLM's reasoning for this step
     depends_on: List[str] = []
     parameters: Dict[str, Any] = {}
 
 
 class PlannerOutput(BaseModel):
     intent: str
+    thought: str = ""  # LLM's overall reasoning for the plan
     query_type: str = "general_qa"  # Type of query (resume_review, meeting_prep, etc.)
     steps: List[PlanStep]
     needs_linkup: bool

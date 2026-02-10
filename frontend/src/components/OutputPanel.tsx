@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Upload,
   Library,
+  BrainCircuit,
 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { FileUploader } from "./FileUploader";
@@ -45,6 +46,15 @@ export function OutputPanel({ output, isLoading, onRefine, files, setFiles, sess
       { id: "risks", title: "Identified Risks", content: (output as BriefingOutput).risks.join("\n") },
       { id: "actions", title: "Action Items", content: ((output as BriefingOutput).actions || []).join("\n") },
     ]) : []).filter(s => s.content && s.content.length > 0);
+
+    // Add Agent Reasoning section if thought exists
+    if (output && isDynamicOutput(output) && output.thought) {
+      reportSections.unshift({
+        id: "agent_reasoning",
+        title: "Agent Reasoning",
+        content: output.thought,
+      });
+    }
 
     const resourceSections = [
       { id: "uploads", title: "Session Files", icon: <Upload className="h-4 w-4" /> },
@@ -235,8 +245,8 @@ function SectionButton({ id, title, activeSection, onClick, icon }: any) {
     <button
       onClick={() => onClick(id)}
       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm transition-all group ${activeSection === id
-          ? "bg-blue-600/10 text-blue-400 border border-blue-500/20"
-          : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+        ? "bg-blue-600/10 text-blue-400 border border-blue-500/20"
+        : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
         }`}
     >
       <div className={`p-1 rounded-md transition-colors ${activeSection === id ? "bg-blue-600/20 text-blue-400" : "bg-slate-800 text-slate-600 group-hover:text-slate-400"
@@ -293,6 +303,7 @@ function ResearchSources({ sources }: { sources: any[] }) {
 // Helper to get icon based on section name
 function getSectionIcon(sectionId: string): React.ReactNode {
   const iconMap: Record<string, React.ReactNode> = {
+    agent_reasoning: <BrainCircuit className="h-4 w-4" />,
     executive_summary: <FileText className="h-4 w-4" />,
     summary: <FileText className="h-4 w-4" />,
     key_strengths: <Sparkles className="h-4 w-4" />,

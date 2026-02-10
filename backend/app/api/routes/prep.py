@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional, List
+import json
 
 from app.models.requests import PrepRequest, ClarifyRequest, SessionUpdateRequest
 from app.models.responses import (
@@ -22,7 +23,8 @@ from app.core.executor import Executor, ExecutionState
 from app.core.evaluator import Evaluator
 from app.core.query_classifier import classify_query, QueryClassification
 from app.services.vector_memory import get_vector_memory_service
-from app.db.schema import SessionRepository
+from app.db.schema import SessionRepository, MessageRepository
+from app.core.orchestrator import AgentOrchestrator
 
 
 router = APIRouter()
@@ -110,8 +112,6 @@ async def prepare_meeting(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    memory = SessionMemory(session_id)
-
     llm = LLMClient()
 
     if not session.user_goal:
@@ -121,12 +121,19 @@ async def prepare_meeting(
     else:
         session_goal = session.user_goal
 
-    # Classify the query first
-    file_names = []  # No files for this endpoint
-    classification = classify_query(command, file_names)
-
-    # If clarification needed, return early with options
-    if classification.needs_clarification:
+    orchestrator = AgentOrchestrator(llm=llm)
+    
+    # Run Orchestrator
+    result = await orchestrator.run(
+        session_id=session_id,
+        command=command,
+        file_contents={},
+        session_goal=session_goal,
+        explicit_entities=request.research_entities
+    )
+    
+    if result["status"] == "needs_clarification":
+        classification = result["classification"]
         return ClarificationResponse(
             status="needs_clarification",
             message=classification.clarification_message,
@@ -137,61 +144,39 @@ async def prepare_meeting(
             original_query=command,
         )
 
-    planner = Planner(llm)
-    executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
-    evaluator = Evaluator(llm)
-
-    vector_memory = get_vector_memory_service()
-    long_term_context = vector_memory.query_memory(command)
-
-    all_file_contents = {}  # No files for this endpoint
-
-    # Clear any previous execution state
-    Executor.clear_execution_status(session_id)
-
-    # Enrich user goal with long-term context if available
-    enriched_goal = command
-    if long_term_context:
-        enriched_goal += f"\n\nLong-term Memory Context:\n" + "\n".join(
-            long_term_context
-        )
-
-    # Create plan with query type and explicit research entities if provided
-    explicit_entities = request.research_entities if request.research_entities else None
-    plan = await planner.plan(
-        enriched_goal,
-        classification.query_type.value,
-        all_file_contents,
-        session_goal,
-        explicit_entities,
-    )
-
-    # Execute with user goal for context
-    execution_result = await executor.run(plan, all_file_contents, enriched_goal)
-
-    evaluation = await evaluator.evaluate_completion(
-        command, plan, execution_result["results"], execution_result["response"]
-    )
-
-    await memory.set_goal(command)
-
-    # Save response to long-term memory
-    # if execution_result.get("response", {}).get("raw_response"):
-    # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
-
     # Build research metadata
     research_metadata = _build_research_metadata(
-        plan, execution_result["results"], explicit_entities
+        PlannerOutput(**result["plan"]), result["results"], request.research_entities
     )
+
+    # Persist messages and output to DB for session recovery
+    try:
+        await MessageRepository.save_message(session_id, "user", command, "text")
+        # Ensure we don't block main response if persistence fails
+        await MessageRepository.save_message(session_id, "assistant", "Briefing manifested in your workspace.", "text")
+        
+        # Prepare output for persistence (merge response + metadata)
+        output_to_save = result["response"].copy()
+        if "thought" in result.get("plan", {}):
+            output_to_save["thought"] = result["plan"]["thought"]
+        
+        if hasattr(research_metadata, "model_dump"):
+            output_to_save["research_metadata"] = research_metadata.model_dump()
+        else:
+            output_to_save["research_metadata"] = research_metadata
+            
+        await MessageRepository.save_output(session_id, json.dumps(output_to_save))
+    except Exception as e:
+        print(f"Failed to persist session state: {e}")
 
     return PrepResponse(
         session_id=session_id,
-        intent=plan.intent,
-        query_type=plan.query_type,
-        plan=plan.model_dump(),
-        results=execution_result["results"],
-        response=DynamicResponse(**execution_result["response"]),
-        evaluation=evaluation,
+        intent=result["intent"],
+        query_type=result["query_type"],
+        plan=result["plan"],
+        results=result["results"],
+        response=DynamicResponse(**result["response"]),
+        evaluation=result["evaluation"],
         research_metadata=research_metadata,
     )
 
@@ -204,14 +189,12 @@ async def prepare_meeting_with_files(
 
     session_id = request.session_id
     command = request.command
-    file_refs = request.file_refs or []
 
     session = await SessionRepository.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     memory = SessionMemory(session_id)
-
     llm = LLMClient()
 
     if not session.user_goal:
@@ -222,18 +205,22 @@ async def prepare_meeting_with_files(
         session_goal = session.user_goal
 
     all_file_contents = await memory.get_all_file_contents()
-
     if not all_file_contents:
-        raise HTTPException(
-            status_code=400, detail="No files uploaded for this session"
-        )
+        raise HTTPException(status_code=400, detail="No files uploaded for this session")
 
-    # Classify the query with file context
-    file_names = list(all_file_contents.keys())
-    classification = classify_query(command, file_names)
-
-    # If clarification needed, return early with options
-    if classification.needs_clarification:
+    orchestrator = AgentOrchestrator(llm=llm)
+    
+    # Run Orchestrator
+    result = await orchestrator.run(
+        session_id=session_id,
+        command=command,
+        file_contents=all_file_contents,
+        session_goal=session_goal,
+        explicit_entities=request.research_entities
+    )
+    
+    if result["status"] == "needs_clarification":
+        classification = result["classification"]
         return ClarificationResponse(
             status="needs_clarification",
             message=classification.clarification_message,
@@ -244,59 +231,38 @@ async def prepare_meeting_with_files(
             original_query=command,
         )
 
-    planner = Planner(llm)
-    executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
-    evaluator = Evaluator(llm)
-
-    vector_memory = get_vector_memory_service()
-    long_term_context = vector_memory.query_memory(command)
-
-    # Clear any previous execution state
-    Executor.clear_execution_status(session_id)
-
-    # Enrich user goal with long-term context if available
-    enriched_goal = command
-    if long_term_context:
-        enriched_goal += f"\n\nLong-term Memory Context:\n" + "\n".join(
-            long_term_context
-        )
-
-    # Create plan with query type and explicit research entities if provided
-    explicit_entities = request.research_entities if request.research_entities else None
-    plan = await planner.plan(
-        enriched_goal,
-        classification.query_type.value,
-        all_file_contents,
-        session_goal,
-        explicit_entities,
-    )
-
-    # Execute with user goal for context
-    execution_result = await executor.run(plan, all_file_contents, enriched_goal)
-
-    evaluation = await evaluator.evaluate_completion(
-        command, plan, execution_result["results"], execution_result["response"]
-    )
-
-    await memory.set_goal(command)
-
-    # Save response to long-term memory
-    # if execution_result.get("response", {}).get("raw_response"):
-    # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
-
     # Build research metadata
     research_metadata = _build_research_metadata(
-        plan, execution_result["results"], explicit_entities
+        PlannerOutput(**result["plan"]), result["results"], request.research_entities
     )
+
+    # Persist messages and output to DB for session recovery
+    try:
+        await MessageRepository.save_message(session_id, "user", command, "text")
+        await MessageRepository.save_message(session_id, "assistant", "Briefing manifested in your workspace.", "text")
+        
+        # Prepare output for persistence (merge response + metadata)
+        output_to_save = result["response"].copy()
+        if "thought" in result.get("plan", {}):
+            output_to_save["thought"] = result["plan"]["thought"]
+        
+        if hasattr(research_metadata, "model_dump"):
+            output_to_save["research_metadata"] = research_metadata.model_dump()
+        else:
+            output_to_save["research_metadata"] = research_metadata
+            
+        await MessageRepository.save_output(session_id, json.dumps(output_to_save))
+    except Exception as e:
+        print(f"Failed to persist session state: {e}")
 
     return PrepResponse(
         session_id=session_id,
-        intent=plan.intent,
-        query_type=plan.query_type,
-        plan=plan.model_dump(),
-        results=execution_result["results"],
-        response=DynamicResponse(**execution_result["response"]),
-        evaluation=evaluation,
+        intent=result["intent"],
+        query_type=result["query_type"],
+        plan=result["plan"],
+        results=result["results"],
+        response=DynamicResponse(**result["response"]),
+        evaluation=result["evaluation"],
         research_metadata=research_metadata,
     )
 
@@ -357,15 +323,30 @@ async def clarify_query(request: ClarifyRequest):
     # if execution_result.get("response", {}).get("raw_response"):
     # vector_memory.add_to_memory(execution_result["response"]["raw_response"])
 
-    # Build research metadata (always auto-researched for clarify flow)
-    research_metadata = _build_research_metadata(
-        plan, execution_result["results"], None
+    # Build research metadata (manual construction since no orchestrator here)
+    research_metadata = ResearchMetadata(
+        entities=[],  # No explicit entities in clarification flow usually
+        sources=[],   # Linkup sources would need to be extracted from results if needed
+        auto_researched=False
     )
+
+    # Persist messages and output to DB for session recovery
+    try:
+        await MessageRepository.save_message(session_id, "user", f"I meant: {selected_type}", "text")
+        await MessageRepository.save_message(session_id, "assistant", "Briefing manifested in your workspace.", "text")
+        
+        # Prepare output for persistence
+        output_to_save = execution_result["response"].copy()
+        output_to_save["research_metadata"] = research_metadata.model_dump()
+            
+        await MessageRepository.save_output(session_id, json.dumps(output_to_save))
+    except Exception as e:
+        print(f"Failed to persist session state: {e}")
 
     return PrepResponse(
         session_id=session_id,
         intent=plan.intent,
-        query_type=plan.query_type,
+        query_type=selected_type or "clarification", # Assuming selected_type is the query_type for persistence
         plan=plan.model_dump(),
         results=execution_result["results"],
         response=DynamicResponse(**execution_result["response"]),
@@ -474,6 +455,7 @@ async def get_execution_status(session_id: str):
             "session_id": session_id,
             "current_step": "Waiting",
             "reasoning": "No active execution",
+            "thought": "",
             "progress": 0.0,
             "complete": False,
         }
@@ -482,7 +464,24 @@ async def get_execution_status(session_id: str):
         "session_id": status.session_id,
         "current_step": status.current_step,
         "reasoning": status.reasoning,
+        "thought": status.thought,
         "progress": status.progress,
         "complete": status.complete,
         "timestamp": status.timestamp.isoformat() if status.timestamp else None,
     }
+
+
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """Get all persisted chat messages for a session."""
+    messages = await MessageRepository.get_messages(session_id)
+    return {"messages": messages}
+
+
+@router.get("/sessions/{session_id}/output")
+async def get_session_output(session_id: str):
+    """Get the latest persisted output for a session."""
+    output_json = await MessageRepository.get_latest_output(session_id)
+    if output_json:
+        return {"output": json.loads(output_json)}
+    return {"output": None}

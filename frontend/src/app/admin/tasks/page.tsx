@@ -47,7 +47,7 @@ export default function AdminTasksPage() {
   if (loading) {
     return (
       <div className="min-h-screen">
-        <div className="pr-16 min-h-screen p-8">
+        <div className="min-h-screen p-8">
           <div className="glass-card rounded-xl p-8 animate-pulse max-w-7xl">
             <div className="h-6 bg-white/10 rounded w-1/4 mb-4"></div>
             <div className="space-y-3">
@@ -65,7 +65,7 @@ export default function AdminTasksPage() {
   if (error) {
     return (
       <div className="min-h-screen">
-        <div className="pr-16 min-h-screen p-8">
+        <div className="min-h-screen p-8">
           <div className="glass-card rounded-xl p-8 text-center max-w-7xl mx-auto">
             <p className="text-red-400">Error: {error}</p>
             <p className="text-slate-400 mt-2">Make sure the backend server is running on port 8000</p>
@@ -78,7 +78,7 @@ export default function AdminTasksPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="pr-16 min-h-screen p-8">
+      <div className="min-h-screen p-8">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold mb-6">Agent Task History</h1>
 
