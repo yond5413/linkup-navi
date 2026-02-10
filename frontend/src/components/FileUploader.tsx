@@ -63,7 +63,13 @@ export function FileUploader({
       setUploading(i);
 
       try {
-        await uploadFile(sessionId, file);
+        const response = await uploadFile(sessionId, file);
+
+        // Notify if it's a duplicate
+        if (response.message.includes("Duplicate")) {
+          alert(`Success: ${response.message}`);
+        }
+
         const newFile: FileUpload = {
           name: file.name,
           size: file.size,
@@ -94,11 +100,10 @@ export function FileUploader({
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-          isDragging
+        className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${isDragging
             ? "border-blue-500 bg-blue-50"
             : "border-slate-200 hover:border-slate-300"
-        }`}
+          }`}
       >
         <Upload className="mx-auto h-8 w-8 text-slate-400 mb-2" />
         <p className="text-sm text-slate-600 mb-2">

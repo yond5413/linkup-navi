@@ -200,6 +200,69 @@ export async function getExecutionStatus(sessionId: string): Promise<ExecutionSt
   return res.json();
 }
 
+export async function getAllFiles(): Promise<Array<{ id: string; session_id: string; file_name: string; file_type: string; uploaded_at: string }>> {
+  const res = await fetch(`${API_BASE}/knowledge/files`);
+  if (!res.ok) throw new Error("Failed to fetch knowledge base files");
+  const data = await res.json();
+  return data.files;
+}
+
+export async function getMemoryStatus(): Promise<{ total_chunks: number; index_name: string }> {
+  const res = await fetch(`${API_BASE}/knowledge/memory-status`);
+  if (!res.ok) throw new Error("Failed to fetch memory status");
+  return res.json();
+}
+
+export interface MemoryStats {
+  total_vectors: number;
+  index_name: string;
+  cohere_configured: boolean;
+}
+
+export interface MemoryChunk {
+  text: string;
+  index: number;
+}
+
+export interface MemorySearchResult {
+  text: string;
+  score: number;
+  rank: number;
+}
+
+export async function getMemoryStats(): Promise<MemoryStats> {
+  const res = await fetch(`${API_BASE}/admin/memory/stats`);
+  if (!res.ok) throw new Error("Failed to fetch memory stats");
+  return res.json();
+}
+
+export async function getRecentChunks(limit: number): Promise<MemoryChunk[]> {
+  const res = await fetch(`${API_BASE}/admin/memory/recent?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch recent chunks");
+  const data = await res.json();
+  return data.chunks;
+}
+
+export async function searchMemory(query: string, k: number): Promise<MemorySearchResult[]> {
+  const params = new URLSearchParams({ query, k: k.toString() });
+  const res = await fetch(`${API_BASE}/admin/memory/search?${params}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to search memory");
+  }
+  const data = await res.json();
+  return data.results;
+}
+
+export async function deleteKnowledgeFile(fileId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/knowledge/files/${fileId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete file from knowledge base");
+}
+
 export function isClarificationResponse(response: ApiResponse): response is ClarificationResponse {
   return "status" in response && response.status === "needs_clarification";
 }
@@ -207,14 +270,14 @@ export function isClarificationResponse(response: ApiResponse): response is Clar
 export function transformResponse(response: PrepResponse) {
   // Transform the dynamic response into a format the UI can render
   const { response: dynamicResponse, research_metadata } = response;
-  
+
   // Convert sections into an array for rendering
   const sections = Object.entries(dynamicResponse.sections).map(([key, content]) => ({
     id: key,
     title: formatSectionTitle(key),
     content,
   }));
-  
+
   return {
     query_type: dynamicResponse.query_type,
     query_type_label: formatQueryTypeLabel(dynamicResponse.query_type),
@@ -249,7 +312,7 @@ function formatQueryTypeLabel(queryType: string): string {
 export function transformBriefing(response: PrepResponse) {
   // This is a fallback that creates the old structure from the new response
   const { response: dynamicResponse } = response;
-  
+
   return {
     summary: dynamicResponse.sections.executive_summary || dynamicResponse.sections.summary || dynamicResponse.raw_response,
     deadlines: [],

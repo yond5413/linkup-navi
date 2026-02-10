@@ -47,6 +47,20 @@ class SessionContext:
         return asdict(self)
 
 
+@dataclass
+class Task:
+    id: str
+    session_id: str
+    user_input: str
+    inferred_intent: str
+    tools_used: str
+    status: str
+    created_at: str
+
+    def to_dict(self):
+        return asdict(self)
+
+
 DATABASE_PATH = get_settings().db_path
 
 
@@ -77,6 +91,18 @@ async def init_db():
             session_id TEXT NOT NULL,
             key TEXT NOT NULL,
             value TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            user_input TEXT NOT NULL,
+            inferred_intent TEXT NOT NULL,
+            tools_used TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
@@ -215,6 +241,67 @@ class SessionFileRepository:
         ]
 
     @staticmethod
+    async def get_all_files() -> list[SessionFile]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, file_name, file_path, file_type, uploaded_at FROM session_files ORDER BY uploaded_at DESC"
+        )
+        rows = await cursor.fetchall()
+        await db.close()
+        return [
+            SessionFile(
+                id=row[0],
+                session_id=row[1],
+                file_name=row[2],
+                file_path=row[3],
+                file_type=row[4],
+                uploaded_at=row[5],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def get_file_by_id(file_id: str) -> Optional[SessionFile]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, file_name, file_path, file_type, uploaded_at FROM session_files WHERE id = ?",
+            (file_id,),
+        )
+        row = await cursor.fetchone()
+        await db.close()
+        if row:
+            return SessionFile(
+                id=row[0],
+                session_id=row[1],
+                file_name=row[2],
+                file_path=row[3],
+                file_type=row[4],
+                uploaded_at=row[5],
+            )
+        return None
+
+    @staticmethod
+    async def get_files_by_name(file_name: str) -> list[SessionFile]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, file_name, file_path, file_type, uploaded_at FROM session_files WHERE file_name = ?",
+            (file_name,),
+        )
+        rows = await cursor.fetchall()
+        await db.close()
+        return [
+            SessionFile(
+                id=row[0],
+                session_id=row[1],
+                file_name=row[2],
+                file_path=row[3],
+                file_type=row[4],
+                uploaded_at=row[5],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
     async def delete_file(file_id: str):
         db = await get_connection()
         await db.execute("DELETE FROM session_files WHERE id = ?", (file_id,))
@@ -251,6 +338,76 @@ class SessionContextRepository:
         db = await get_connection()
         await db.execute(
             "DELETE FROM session_context WHERE session_id = ?", (session_id,)
+        )
+        await db.commit()
+        await db.close()
+
+
+class TaskRepository:
+    @staticmethod
+    async def create_task(
+        session_id: str,
+        user_input: str,
+        inferred_intent: str,
+        tools_used: str,
+        status: str = "pending",
+    ) -> Task:
+        now = datetime.utcnow().isoformat()
+        task_id = str(uuid.uuid4())
+        task = Task(
+            id=task_id,
+            session_id=session_id,
+            user_input=user_input,
+            inferred_intent=inferred_intent,
+            tools_used=tools_used,
+            status=status,
+            created_at=now,
+        )
+        db = await get_connection()
+        await db.execute(
+            "INSERT INTO tasks (id, session_id, user_input, inferred_intent, tools_used, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                task.id,
+                task.session_id,
+                task.user_input,
+                task.inferred_intent,
+                task.tools_used,
+                task.status,
+                task.created_at,
+            ),
+        )
+        await db.commit()
+        await db.close()
+        return task
+
+    @staticmethod
+    async def get_recent_tasks(limit: int = 50) -> list[dict]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, user_input, inferred_intent, tools_used, status, created_at FROM tasks ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        await db.close()
+        return [
+            {
+                "task_id": row[0],
+                "session_id": row[1],
+                "user_input": row[2],
+                "inferred_intent": row[3],
+                "tools_used": row[4],
+                "status": row[5],
+                "timestamp": row[6],
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    async def update_task_status(task_id: str, status: str):
+        db = await get_connection()
+        await db.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            (status, task_id),
         )
         await db.commit()
         await db.close()

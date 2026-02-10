@@ -3,13 +3,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { CommandInput } from "@/components/CommandInput";
 import { FileUploader } from "@/components/FileUploader";
+import { KnowledgeLibrary } from "@/components/KnowledgeLibrary";
 import { OutputPanel } from "@/components/OutputPanel";
 import { SessionHistory } from "@/components/SessionHistory";
 import { ExecutionStatusDisplay } from "@/components/ExecutionStatus";
 import { ClarificationModal } from "@/components/ClarificationModal";
 import { BriefingOutput, DynamicOutput, FileUpload, ExecutionStatus, ClarificationOption } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { BrainCircuit } from "lucide-react";
+import { BrainCircuit, Upload, Library } from "lucide-react";
+import { AdminSidebar } from "@/components/AdminSidebar";
 import {
   createSession,
   getSession,
@@ -26,19 +28,19 @@ import {
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"upload" | "library">("upload");
   const [command, setCommand] = useState("");
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [output, setOutput] = useState<BriefingOutput | DynamicOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus | null>(null);
-  
-  // Clarification state
+
   const [clarificationNeeded, setClarificationNeeded] = useState(false);
   const [clarificationOptions, setClarificationOptions] = useState<ClarificationOption[]>([]);
   const [clarificationMessage, setClarificationMessage] = useState("");
   const [pendingCommand, setPendingCommand] = useState("");
-  
+
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -84,10 +86,8 @@ export default function Home() {
     }
   };
 
-  // Polling for execution status
   useEffect(() => {
     if (isLoading && sessionId) {
-      // Start polling
       pollingRef.current = setInterval(async () => {
         try {
           const status = await getExecutionStatus(sessionId);
@@ -95,9 +95,8 @@ export default function Home() {
         } catch (err) {
           console.error("Failed to fetch execution status:", err);
         }
-      }, 1000); // Poll every 1 second
+      }, 1000);
     } else {
-      // Stop polling
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
@@ -114,7 +113,7 @@ export default function Home() {
 
   const handleClarificationSelect = async (selectedType: string) => {
     if (!sessionId) return;
-    
+
     setClarificationNeeded(false);
     setIsLoading(true);
     setError(null);
@@ -148,8 +147,7 @@ export default function Home() {
 
       try {
         const response: ApiResponse = await executePrep(sessionId, cmd, researchEntities);
-        
-        // Check if clarification is needed
+
         if (isClarificationResponse(response)) {
           setClarificationNeeded(true);
           setClarificationOptions(response.suggested_types);
@@ -158,8 +156,7 @@ export default function Home() {
           setIsLoading(false);
           return;
         }
-        
-        // Normal response flow
+
         const transformed = transformResponse(response);
         setOutput(transformed);
       } catch (err) {
@@ -221,15 +218,42 @@ export default function Home() {
               </Card>
 
               <Card className="glass-card border-slate-700 overflow-hidden font-sans">
-                <CardHeader className="bg-slate-800/30 border-b border-slate-700">
-                  <CardTitle className="text-slate-200 text-lg">Knowledge Base</CardTitle>
+                <CardHeader className="bg-slate-800/30 border-b border-slate-700 px-0 pb-0">
+                  <div className="flex px-6 pb-2">
+                    <button
+                      onClick={() => setActiveTab("upload")}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${
+                        activeTab === "upload"
+                          ? "text-blue-400 border-blue-400"
+                          : "text-slate-500 border-transparent hover:text-slate-300"
+                      }`}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Session Uploads
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("library")}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${
+                        activeTab === "library"
+                          ? "text-blue-400 border-blue-400"
+                          : "text-slate-500 border-transparent hover:text-slate-300"
+                      }`}
+                    >
+                      <Library className="h-4 w-4" />
+                      Knowledge Library
+                    </button>
+                  </div>
                 </CardHeader>
                 <CardContent className="pt-6">
-                  <FileUploader
-                    sessionId={sessionId || ""}
-                    files={files}
-                    onFilesChange={setFiles}
-                  />
+                  {activeTab === "upload" ? (
+                    <FileUploader
+                      sessionId={sessionId || ""}
+                      files={files}
+                      onFilesChange={setFiles}
+                    />
+                  ) : (
+                    <KnowledgeLibrary />
+                  )}
                 </CardContent>
               </Card>
 
@@ -275,6 +299,7 @@ export default function Home() {
           </div>
         </main>
       </div>
+      <AdminSidebar />
     </div>
   );
 }
