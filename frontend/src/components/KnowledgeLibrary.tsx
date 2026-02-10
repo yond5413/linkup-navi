@@ -63,7 +63,7 @@ export function KnowledgeLibrary() {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <Database className="h-4 w-4 text-blue-400" />
                     <span className="text-sm font-semibold text-slate-300">Persistent Knowledge</span>
@@ -80,9 +80,9 @@ export function KnowledgeLibrary() {
             </div>
 
             {memoryStatus && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-3">
+                        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
                             <Layers className="h-3 w-3" />
                             <span>Vector Chunks</span>
                         </div>
@@ -90,10 +90,10 @@ export function KnowledgeLibrary() {
                             {memoryStatus.total_chunks}
                         </div>
                     </div>
-                    <div className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+                    <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-3">
+                        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
                             <FileText className="h-3 w-3" />
-                            <span>Total Documents</span>
+                            <span>Documents</span>
                         </div>
                         <div className="text-xl font-bold text-indigo-400">
                             {files.length}
@@ -102,13 +102,14 @@ export function KnowledgeLibrary() {
                 </div>
             )}
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            <div className="space-y-2 pr-1">
                 {isLoading && files.length === 0 ? (
                     <div className="text-center py-8 text-slate-500 text-sm">
+                        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-400/50" />
                         Discovering documents...
                     </div>
                 ) : files.length === 0 ? (
-                    <div className="text-center py-8 bg-slate-800/30 border border-dashed border-slate-700 rounded-xl">
+                    <div className="text-center py-8 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl">
                         <FileText className="h-8 w-8 text-slate-600 mx-auto mb-2 opacity-50" />
                         <p className="text-slate-500 text-sm px-4">No documents indexed in persistent memory yet.</p>
                     </div>
@@ -126,11 +127,12 @@ export function KnowledgeLibrary() {
                                     <p className="text-sm font-medium text-slate-200 truncate pr-2" title={file.file_name}>
                                         {file.file_name}
                                     </p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-slate-700/80 text-slate-400">
-                                            {file.file_type}
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                                            {file.file_type.split('.').pop() || file.file_type}
                                         </span>
-                                        <span className="text-[10px] text-slate-500">
+                                        <span className="text-[10px] text-slate-600">•</span>
+                                        <span className="text-[10px] text-slate-500 font-medium">
                                             {formatDate(file.uploaded_at)}
                                         </span>
                                     </div>
@@ -154,8 +156,8 @@ export function KnowledgeLibrary() {
                 )}
             </div>
 
-            <p className="text-[10px] text-slate-500 italic text-center mt-2">
-                Documents in the library are available across all sessions.
+            <p className="text-[10px] text-slate-600 italic text-center mt-2 font-medium">
+                Knowledge Library documents are persistent across all sessions.
             </p>
         </div>
     );

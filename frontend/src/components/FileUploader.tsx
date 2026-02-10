@@ -95,22 +95,27 @@ export function FileUploader({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Upload className="h-4 w-4 text-blue-400" />
+        <span className="text-sm font-semibold text-slate-300">Session Documents</span>
+      </div>
+
       <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${isDragging
-            ? "border-blue-500 bg-blue-50"
-            : "border-slate-200 hover:border-slate-300"
+        className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 ${isDragging
+          ? "border-blue-500 bg-blue-500/5 ring-4 ring-blue-500/10"
+          : "border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-800/40"
           }`}
       >
-        <Upload className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-        <p className="text-sm text-slate-600 mb-2">
+        <Upload className="mx-auto h-8 w-8 text-slate-500 mb-2" />
+        <p className="text-sm text-slate-400 mb-2 font-medium">
           Drag and drop files here, or click to select
         </p>
-        <p className="text-xs text-slate-400">
-          PDF, TXT, DOC, DOCX up to {maxFiles} files
+        <p className="text-xs text-slate-500">
+          PDF, TXT, DOC, DOCX • Max {maxFiles} files
         </p>
         <input
           type="file"
@@ -125,7 +130,7 @@ export function FileUploader({
           type="button"
           variant="outline"
           size="sm"
-          className="mt-3"
+          className="mt-4 border-slate-700 hover:bg-slate-800 text-slate-300"
           onClick={() => fileInputRef.current?.click()}
         >
           Select Files
@@ -133,36 +138,42 @@ export function FileUploader({
       </div>
 
       {files.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2 pr-1">
           {files.map((file, index) => (
-            <Card key={index} className="p-3">
-              <CardContent className="flex items-center justify-between p-0">
+            <div
+              key={index}
+              className="group bg-slate-800/40 hover:bg-slate-800/80 border border-slate-700/50 rounded-xl p-3 transition-all duration-200"
+            >
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-slate-500" />
+                  <div className="p-2 bg-slate-700/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
+                    <FileText className="h-5 w-5 text-slate-400 group-hover:text-blue-400" />
+                  </div>
                   <div>
-                    <p className="text-sm font-medium">{file.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {formatSize(file.size)}
+                    <p className="text-sm font-medium text-slate-200">{file.name}</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mt-0.5">
+                      {formatSize(file.size)} • {file.type.split('/').pop()}
                     </p>
                   </div>
                 </div>
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="opacity-0 group-hover:opacity-100 h-8 w-8 text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-all"
                   onClick={() => removeFile(index)}
                 >
                   <X className="h-4 w-4" />
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
       {uploading !== null && (
-        <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Uploading file...
+        <div className="flex items-center justify-center gap-2 text-xs text-slate-500 bg-slate-800/30 py-2 rounded-lg border border-slate-700/50">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+          <span>Uploading file...</span>
         </div>
       )}
     </div>

@@ -170,7 +170,7 @@ export default function Home() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0f172a] flex text-slate-200">
+    <div className="h-screen bg-[#0f172a] flex text-slate-200 overflow-hidden">
       <div className="w-80 border-r border-slate-800 bg-slate-900/50 backdrop-blur-xl">
         <SessionHistory
           currentSessionId={sessionId}
@@ -179,7 +179,7 @@ export default function Home() {
         />
       </div>
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-slate-900/40 border-b border-slate-800 backdrop-blur-md sticky top-0 z-10">
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
             <div className="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
@@ -202,9 +202,9 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex-1 max-w-7xl mx-auto px-4 py-8 w-full">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-6">
+        <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+            <div className="flex flex-col gap-6 min-h-0">
               <Card className="glass-card border-slate-700 overflow-hidden">
                 <CardHeader className="bg-slate-800/30 border-b border-slate-700">
                   <CardTitle className="text-slate-200">Intelligence Command</CardTitle>
@@ -217,34 +217,32 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-card border-slate-700 overflow-hidden font-sans">
+              <Card className="glass-card border-slate-700 font-sans flex-1 min-h-0 flex flex-col">
                 <CardHeader className="bg-slate-800/30 border-b border-slate-700 px-0 pb-0">
                   <div className="flex px-6 pb-2">
                     <button
                       onClick={() => setActiveTab("upload")}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${
-                        activeTab === "upload"
-                          ? "text-blue-400 border-blue-400"
-                          : "text-slate-500 border-transparent hover:text-slate-300"
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${activeTab === "upload"
+                        ? "text-blue-400 border-blue-400"
+                        : "text-slate-500 border-transparent hover:text-slate-300"
+                        }`}
                     >
                       <Upload className="h-4 w-4" />
                       Session Uploads
                     </button>
                     <button
                       onClick={() => setActiveTab("library")}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${
-                        activeTab === "library"
-                          ? "text-blue-400 border-blue-400"
-                          : "text-slate-500 border-transparent hover:text-slate-300"
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${activeTab === "library"
+                        ? "text-blue-400 border-blue-400"
+                        : "text-slate-500 border-transparent hover:text-slate-300"
+                        }`}
                     >
                       <Library className="h-4 w-4" />
                       Knowledge Library
                     </button>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-6">
+                <CardContent className="pt-6 flex-1 min-h-0 overflow-y-auto">
                   {activeTab === "upload" ? (
                     <FileUploader
                       sessionId={sessionId || ""}
@@ -266,7 +264,7 @@ export default function Home() {
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-6 overflow-y-auto">
               {isLoading ? (
                 <Card className="glass-card border-slate-700 overflow-hidden">
                   <CardHeader className="bg-slate-800/30 border-b border-slate-700">
