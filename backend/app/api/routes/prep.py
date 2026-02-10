@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional, List
 
-from app.models.requests import PrepRequest, ClarifyRequest
+from app.models.requests import PrepRequest, ClarifyRequest, SessionUpdateRequest
 from app.models.responses import (
     PrepResponse,
     BriefingResponse,
@@ -26,6 +26,32 @@ from app.db.schema import SessionRepository
 
 
 router = APIRouter()
+
+
+async def _generate_session_name(command: str, llm: LLMClient) -> str:
+    """Generate a descriptive session name from the user's first command."""
+    prompt = f"""Generate a descriptive session name (4-8 words) for this user request. 
+Focus on the ACTION and TOPIC. Return only the name, nothing else.
+
+Examples:
+- "Help me prepare for my interview" → "Interview Preparation - General Tips"
+- "Review my startup pitch deck" → "Pitch Deck Review - Startup Evaluation"
+- "Analyze this contract for hidden fees" → "Contract Analysis - Hidden Fee Review"
+
+User request: "{command}"
+
+Session name:"""
+
+    try:
+        name = llm.generate(prompt).strip()
+        name = name.strip('"').strip("'")
+        if not name or len(name) < 3:
+            return command[:40] + "..." if len(command) > 40 else command
+        if len(name) > 50:
+            name = name[:50].rsplit(" ", 1)[0] + "..."
+        return name
+    except Exception:
+        return command[:40] + "..." if len(command) > 40 else command
 
 
 def _build_research_metadata(
@@ -86,6 +112,15 @@ async def prepare_meeting(
 
     memory = SessionMemory(session_id)
 
+    llm = LLMClient()
+
+    if not session.user_goal:
+        session_name = await _generate_session_name(command, llm)
+        await SessionRepository.update_goal(session_id, session_name)
+        session_goal = session_name
+    else:
+        session_goal = session.user_goal
+
     # Classify the query first
     file_names = []  # No files for this endpoint
     classification = classify_query(command, file_names)
@@ -102,7 +137,6 @@ async def prepare_meeting(
             original_query=command,
         )
 
-    llm = LLMClient()
     planner = Planner(llm)
     executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
     evaluator = Evaluator(llm)
@@ -110,7 +144,6 @@ async def prepare_meeting(
     vector_memory = get_vector_memory_service()
     long_term_context = vector_memory.query_memory(command)
 
-    session_goal = session.user_goal or ""
     all_file_contents = {}  # No files for this endpoint
 
     # Clear any previous execution state
@@ -179,6 +212,15 @@ async def prepare_meeting_with_files(
 
     memory = SessionMemory(session_id)
 
+    llm = LLMClient()
+
+    if not session.user_goal:
+        session_name = await _generate_session_name(command, llm)
+        await SessionRepository.update_goal(session_id, session_name)
+        session_goal = session_name
+    else:
+        session_goal = session.user_goal
+
     all_file_contents = await memory.get_all_file_contents()
 
     if not all_file_contents:
@@ -202,15 +244,12 @@ async def prepare_meeting_with_files(
             original_query=command,
         )
 
-    llm = LLMClient()
     planner = Planner(llm)
     executor = Executor(llm, LinkupClient(), PDFParser(), session_id=session_id)
     evaluator = Evaluator(llm)
 
     vector_memory = get_vector_memory_service()
     long_term_context = vector_memory.query_memory(command)
-
-    session_goal = session.user_goal or ""
 
     # Clear any previous execution state
     Executor.clear_execution_status(session_id)
@@ -390,12 +429,36 @@ async def get_session(session_id: str):
     }
 
 
-@router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """Delete a session and its files."""
+@router.put("/sessions/{session_id}")
+async def update_session(session_id: str, request: SessionUpdateRequest):
+    """Update session metadata (e.g., user_goal/session name)."""
     session = await SessionRepository.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    await SessionRepository.update_goal(session_id, request.user_goal)
+    return {"message": "Session updated successfully"}
+
+
+from app.db.schema import SessionRepository, SessionFileRepository
+from app.config import get_settings
+import os
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a session, its files, and associated uploaded files from disk."""
+    session = await SessionRepository.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    settings = get_settings()
+
+    files = await SessionFileRepository.get_files_by_session(session_id)
+    for file in files:
+        file_path = os.path.join(settings.uploads_dir, file.file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     await SessionRepository.delete_session(session_id)
     return {"message": "Session deleted successfully"}
