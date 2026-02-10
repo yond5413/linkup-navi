@@ -1,7 +1,7 @@
 """SQLAlchemy-like schema using aiosqlite."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 import aiosqlite
@@ -118,7 +118,7 @@ async def get_connection() -> aiosqlite.Connection:
 class SessionRepository:
     @staticmethod
     async def create_session() -> Session:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         session_id = str(uuid.uuid4())
         session = Session(
             id=session_id,
@@ -165,7 +165,7 @@ class SessionRepository:
 
     @staticmethod
     async def update_goal(session_id: str, goal: str):
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         db = await get_connection()
         await db.execute(
             "UPDATE sessions SET user_goal = ?, updated_at = ? WHERE id = ?",
@@ -193,7 +193,7 @@ class SessionFileRepository:
     async def create_file(
         session_id: str, file_name: str, file_path: str, file_type: str
     ) -> SessionFile:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         file_id = str(uuid.uuid4())
         sf = SessionFile(
             id=file_id,
@@ -312,7 +312,7 @@ class SessionFileRepository:
 class SessionContextRepository:
     @staticmethod
     async def set_context(session_id: str, key: str, value: str):
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         context_id = str(uuid.uuid4())
         db = await get_connection()
         await db.execute(
@@ -352,7 +352,7 @@ class TaskRepository:
         tools_used: str,
         status: str = "pending",
     ) -> Task:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         task_id = str(uuid.uuid4())
         task = Task(
             id=task_id,

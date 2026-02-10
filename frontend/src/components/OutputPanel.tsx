@@ -1,13 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/Card";
-import { BriefingOutput, DynamicOutput, ResponseSection, ResearchMetadata, ResearchSource } from "@/types";
+import { useState, useMemo } from "react";
+import { BriefingOutput, DynamicOutput, FileUpload } from "@/types";
 import {
   FileText,
   AlertTriangle,
@@ -17,166 +11,282 @@ import {
   Sparkles,
   ExternalLink,
   Search,
+  Copy,
+  ChevronRight,
+  RefreshCw,
+  Upload,
+  Library,
 } from "lucide-react";
+import { Button } from "./ui/Button";
+import { FileUploader } from "./FileUploader";
+import { KnowledgeLibrary } from "./KnowledgeLibrary";
 
 interface OutputPanelProps {
   output: BriefingOutput | DynamicOutput | null;
   isLoading: boolean;
+  onRefine?: (prompt: string) => void;
+  files: FileUpload[];
+  setFiles: (files: FileUpload[]) => void;
+  sessionId: string;
 }
 
 // Helper to determine if output is the new DynamicOutput type
 function isDynamicOutput(output: BriefingOutput | DynamicOutput): output is DynamicOutput {
-  return "sections" in output && "query_type" in output;
+  return output && "sections" in output && "query_type" in output;
 }
 
-export function OutputPanel({ output, isLoading }: OutputPanelProps) {
+export function OutputPanel({ output, isLoading, onRefine, files, setFiles, sessionId }: OutputPanelProps) {
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
-  if (isLoading) {
-    return (
-      <Card className="h-full flex items-center justify-center min-h-[400px] glass-card border-slate-700">
-        <CardContent className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4" />
-          <p className="text-slate-400">Synthesizing intelligence...</p>
-        </CardContent>
-      </Card>
-    );
+  const sections = useMemo(() => {
+    const reportSections = (output ? (isDynamicOutput(output) ? output.sections : [
+      { id: "summary", title: "Executive Summary", content: (output as BriefingOutput).summary },
+      { id: "deadlines", title: "Key Deadlines", content: (output as BriefingOutput).deadlines.join("\n") },
+      { id: "risks", title: "Identified Risks", content: (output as BriefingOutput).risks.join("\n") },
+      { id: "actions", title: "Action Items", content: ((output as BriefingOutput).actions || []).join("\n") },
+    ]) : []).filter(s => s.content && s.content.length > 0);
+
+    const resourceSections = [
+      { id: "uploads", title: "Session Files", icon: <Upload className="h-4 w-4" /> },
+      { id: "library", title: "Knowledge Library", icon: <Library className="h-4 w-4" /> },
+    ];
+
+    return { report: reportSections, resources: resourceSections };
+  }, [output]);
+
+  // Combined flat list for easy lookups
+  const allSections = [...sections.report, ...sections.resources];
+
+  if (!activeSection && allSections.length > 0) {
+    if (sections.report.length > 0) {
+      setActiveSection(sections.report[0].id);
+    } else {
+      setActiveSection("uploads");
+    }
   }
 
-  if (!output) {
+  const currentSection = allSections.find(s => s.id === activeSection) || allSections[0];
+
+  const handleCopy = () => {
+    if (!currentSection || !("content" in currentSection)) return;
+    navigator.clipboard.writeText((currentSection as any).content);
+  };
+
+  const isReportSection = sections.report.some(s => s.id === activeSection);
+
+  if (!output && !isLoading && activeSection !== "uploads" && activeSection !== "library") {
     return (
-      <Card className="h-full flex items-center justify-center min-h-[400px] glass-card border-slate-700">
-        <CardContent className="text-center">
-          <FileText className="mx-auto h-12 w-12 text-slate-600 mb-3" />
-          <p className="text-slate-400">
-            Submit a command to manifest the briefing
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-6 opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-700">
+        <div className="relative">
+          <div className="absolute inset-0 bg-blue-500/10 blur-3xl rounded-full" />
+          <FileText className="h-24 w-24 text-slate-500 relative" />
+        </div>
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-slate-400">Intelligence Workspace</h3>
+          <p className="text-sm text-slate-600 max-w-xs mx-auto">
+            Briefings, research, and analysis will manifest here. You can also manage your files.
           </p>
-        </CardContent>
-      </Card>
+          <div className="flex gap-3 justify-center">
+            <Button variant="outline" size="sm" onClick={() => setActiveSection("uploads")} className="text-xs uppercase tracking-widest font-bold">Manage Files</Button>
+            <Button variant="outline" size="sm" onClick={() => setActiveSection("library")} className="text-xs uppercase tracking-widest font-bold">Browse Library</Button>
+          </div>
+        </div>
+      </div>
     );
   }
-
-  // Render legacy BriefingOutput structure
-  if (!isDynamicOutput(output)) {
-    return <LegacyOutputPanel output={output} />;
-  }
-
-  // Render new DynamicOutput structure
-  const { query_type_label, sections, research_metadata } = output;
-  
-  // Set initial active section if not set
-  if (!activeSection && sections.length > 0) {
-    setActiveSection(sections[0].id);
-  }
-
-  const currentSection = sections.find(s => s.id === activeSection) || sections[0];
 
   return (
-    <Card className="h-full glass-card border-slate-700 animate-in">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-blue-400" />
-            <span className="text-sm font-medium text-blue-400">
-              {query_type_label}
-            </span>
-            {research_metadata && (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                research_metadata.auto_researched 
-                  ? "bg-slate-700 text-slate-400" 
-                  : "bg-blue-600/30 text-blue-400 border border-blue-500/30"
-              }`}>
-                <Search className="h-3 w-3 inline mr-1" />
-                {research_metadata.auto_researched ? "Auto-researched" : "Research requested"}
+    <div className="h-full flex flex-col bg-slate-900/40 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in duration-700 relative">
+      {/* Document Header */}
+      <header className="px-6 py-5 border-b border-slate-800 bg-slate-900/60 backdrop-blur-md flex items-center justify-between z-10 font-sans">
+        <div className="flex items-center gap-3 font-sans">
+          <div className={`p-2 rounded-xl border transition-all ${isReportSection ? 'bg-blue-600/10 border-blue-500/20' : 'bg-slate-800 border-slate-700'}`}>
+            {isReportSection ? <Sparkles className="h-5 w-5 text-blue-400" /> : (activeSection === "uploads" ? <Upload className="h-5 w-5 text-slate-400" /> : <Library className="h-5 w-5 text-slate-400" />)}
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white tracking-tight">
+              {activeSection === "uploads" ? "Session Files" : (activeSection === "library" ? "Knowledge Library" : (isDynamicOutput(output!) ? output.query_type_label : "Intelligence Briefing"))}
+            </h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.1em]">{isReportSection ? 'Verified Report' : 'Resources'}</span>
+              <div className="h-1 w-1 rounded-full bg-slate-700" />
+              <span className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.1em]">
+                {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
-            )}
-          </div>
-        </div>
-        
-        {/* Dynamic section tabs */}
-        <div className="flex gap-1 border-b border-slate-700 overflow-x-auto">
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-b-2 transition-all whitespace-nowrap ${
-                activeSection === section.id
-                  ? "border-blue-400 text-blue-400"
-                  : "border-transparent text-slate-400 hover:text-slate-300"
-              }`}
-            >
-              {getSectionIcon(section.id)}
-              {section.title}
-            </button>
-          ))}
-        </div>
-      </CardHeader>
-      
-      <CardContent className="overflow-y-auto max-h-[600px]">
-        {currentSection && (
-          <div className="prose prose-sm max-w-none prose-invert">
-            <div 
-              className="whitespace-pre-wrap text-slate-300 leading-relaxed"
-              dangerouslySetInnerHTML={{ 
-                __html: formatContent(currentSection.content) 
-              }}
-            />
-          </div>
-        )}
-        
-        {/* Research Sources Section */}
-        {research_metadata && research_metadata.sources.length > 0 && (
-          <div className="mt-8 pt-6 border-t border-slate-700">
-            <div className="flex items-center gap-2 mb-4">
-              <LinkIcon className="h-4 w-4 text-blue-400" />
-              <h4 className="text-sm font-medium text-slate-200">
-                Research Sources
-                {research_metadata.entities.length > 0 && (
-                  <span className="text-slate-500 ml-2">
-                    ({research_metadata.entities.join(", ")})
-                  </span>
-                )}
-              </h4>
             </div>
-            <div className="space-y-3">
-              {research_metadata.sources.map((source, index) => (
-                <a
-                  key={index}
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors group"
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isReportSection && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopy}
+                className="h-8 rounded-lg bg-slate-800/50 border-slate-700 hover:bg-slate-700 text-xs gap-2"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </Button>
+              {onRefine && (
+                <Button
+                  size="sm"
+                  onClick={() => onRefine("Refine this section...")}
+                  className="h-8 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs gap-2 shadow-lg shadow-blue-600/20"
                 >
-                  {source.favicon ? (
-                    <img 
-                      src={source.favicon} 
-                      alt="" 
-                      className="h-4 w-4 mt-0.5 opacity-60 group-hover:opacity-100"
-                    />
-                  ) : (
-                    <LinkIcon className="h-4 w-4 mt-0.5 text-slate-500" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-blue-400 group-hover:text-blue-300 truncate">
-                        {source.title}
-                      </span>
-                      <ExternalLink className="h-3 w-3 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                      {source.snippet}
-                    </p>
-                    <span className="text-xs text-slate-600 mt-1 block truncate">
-                      {source.url}
-                    </span>
-                  </div>
-                </a>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refine
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* Document Content */}
+      <div className="flex-1 flex overflow-hidden font-sans">
+        {/* Section Nav */}
+        <aside className="w-60 border-r border-slate-800/50 bg-slate-900/20 p-4 flex flex-col overflow-hidden flex-shrink-0">
+          <div className="space-y-6 flex-1 overflow-y-auto pr-2">
+            {sections.report.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] px-3 mb-2 block">Briefing Sections</span>
+                {sections.report.map((section) => (
+                  <SectionButton
+                    key={section.id}
+                    id={section.id}
+                    title={section.title}
+                    activeSection={activeSection}
+                    onClick={setActiveSection}
+                    icon={getSectionIcon(section.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] px-3 mb-2 block">Resources</span>
+              {sections.resources.map((section) => (
+                <SectionButton
+                  key={section.id}
+                  id={section.id}
+                  title={section.title}
+                  activeSection={activeSection}
+                  onClick={setActiveSection}
+                  icon={section.icon}
+                />
               ))}
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </aside>
+
+        {/* Section Content */}
+        <main className="flex-1 overflow-y-auto flex flex-col bg-slate-900/10">
+          {activeSection === "uploads" ? (
+            <div className="p-8 h-full">
+              <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in duration-500">
+                <div className="space-y-2 text-center pb-8 border-b border-slate-800/50">
+                  <h3 className="text-2xl font-bold text-white tracking-tight">Session Files</h3>
+                  <p className="text-slate-500 text-sm">Upload documents to provide context for this session.</p>
+                </div>
+                <FileUploader
+                  sessionId={sessionId || ""}
+                  files={files}
+                  onFilesChange={setFiles}
+                />
+              </div>
+            </div>
+          ) : activeSection === "library" ? (
+            <div className="h-full overflow-hidden flex flex-col">
+              <KnowledgeLibrary />
+            </div>
+          ) : currentSection && "content" in currentSection ? (
+            <div className="p-8">
+              <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-bold text-white tracking-tight">{currentSection.title}</h3>
+                  <div className="h-1 w-12 bg-blue-600 rounded-full" />
+                </div>
+
+                <div className="prose prose-invert prose-blue max-w-none">
+                  <div
+                    className="whitespace-pre-wrap text-slate-300 leading-relaxed text-[16px]"
+                    dangerouslySetInnerHTML={{
+                      __html: formatContent((currentSection as any).content)
+                    }}
+                  />
+                </div>
+
+                {isDynamicOutput(output!) && output.research_metadata && output.research_metadata.sources.length > 0 && activeSection === "research" && (
+                  <ResearchSources sources={output.research_metadata.sources} />
+                )}
+              </div>
+            </div>
+          ) : null}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function SectionButton({ id, title, activeSection, onClick, icon }: any) {
+  return (
+    <button
+      onClick={() => onClick(id)}
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-sm transition-all group ${activeSection === id
+          ? "bg-blue-600/10 text-blue-400 border border-blue-500/20"
+          : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+        }`}
+    >
+      <div className={`p-1 rounded-md transition-colors ${activeSection === id ? "bg-blue-600/20 text-blue-400" : "bg-slate-800 text-slate-600 group-hover:text-slate-400"
+        }`}>
+        {icon}
+      </div>
+      <span className="flex-1 truncate font-medium">{title}</span>
+      {activeSection === id && (
+        <ChevronRight className="h-3 w-3 opacity-50" />
+      )}
+    </button>
+  );
+}
+
+function ResearchSources({ sources }: { sources: any[] }) {
+  return (
+    <div className="mt-12 space-y-6 px-4 pb-12">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-slate-800" />
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap px-4">Sources Citations</span>
+        <div className="h-px flex-1 bg-slate-800" />
+      </div>
+      <div className="grid gap-4">
+        {sources.map((source, index) => (
+          <a
+            key={index}
+            href={source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group p-4 bg-slate-800/30 border border-slate-700/30 rounded-2xl hover:bg-slate-800/50 hover:border-blue-500/30 transition-all flex items-start gap-4"
+          >
+            <div className="h-10 w-10 rounded-xl bg-slate-900/50 border border-slate-700 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-600/10 group-hover:border-blue-500/30 transition-all">
+              {source.favicon ? (
+                <img src={source.favicon} alt="" className="h-5 w-5 opacity-70 group-hover:opacity-100" />
+              ) : (
+                <LinkIcon className="h-5 w-5 text-slate-500 group-hover:text-blue-400" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors truncate">{source.title}</h4>
+              <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{source.snippet}</p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[10px] text-blue-500/80 font-mono truncate">{new URL(source.url).hostname}</span>
+                <ExternalLink className="h-3 w-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -195,8 +305,8 @@ function getSectionIcon(sectionId: string): React.ReactNode {
     deadlines: <Clock className="h-4 w-4" />,
     risks_and_considerations: <AlertTriangle className="h-4 w-4" />,
     risks: <AlertTriangle className="h-4 w-4" />,
-    background_context: <LinkIcon className="h-4 w-4" />,
-    research: <LinkIcon className="h-4 w-4" />,
+    background_context: <Search className="h-4 w-4" />,
+    research: <Search className="h-4 w-4" />,
     actionable_briefing: <CheckSquare className="h-4 w-4" />,
     actions: <CheckSquare className="h-4 w-4" />,
     key_terms: <FileText className="h-4 w-4" />,
@@ -204,130 +314,21 @@ function getSectionIcon(sectionId: string): React.ReactNode {
     risk_factors: <AlertTriangle className="h-4 w-4" />,
     recommendations: <Sparkles className="h-4 w-4" />,
   };
-  
+
   return iconMap[sectionId] || <FileText className="h-4 w-4" />;
 }
 
 // Helper to format content (basic markdown-like formatting)
 function formatContent(content: string): string {
   if (!content) return "";
-  
+
   return content
     // Bold text
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
     // Italic text
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Bullet points
-    .replace(/^- (.+)$/gm, '<li class="ml-4">$1</li>')
+    .replace(/^- (.+)$/gm, '<li class="ml-4 pl-2 mb-1">$1</li>')
     // Headers
-    .replace(/^#{1,3} (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-4 mb-2">$1</h3>');
-}
-
-// Legacy output panel for backward compatibility
-function LegacyOutputPanel({ output }: { output: BriefingOutput }) {
-  const [activeTab, setActiveTab] = useState<"summary" | "deadlines" | "risks" | "research" | "actions">("summary");
-
-  const tabs = [
-    { id: "summary" as const, label: "Summary", icon: <FileText className="h-4 w-4" /> },
-    { id: "deadlines" as const, label: "Deadlines", icon: <Clock className="h-4 w-4" /> },
-    { id: "risks" as const, label: "Risks", icon: <AlertTriangle className="h-4 w-4" /> },
-    { id: "research" as const, label: "Research", icon: <LinkIcon className="h-4 w-4" /> },
-    { id: "actions" as const, label: "Actions", icon: <CheckSquare className="h-4 w-4" /> },
-  ];
-
-  return (
-    <Card className="h-full glass-card border-slate-700">
-      <CardHeader className="pb-3">
-        <div className="flex gap-1 border-b border-slate-700">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? "border-blue-400 text-blue-400"
-                  : "border-transparent text-slate-400 hover:text-slate-300"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {activeTab === "summary" && (
-          <div className="prose prose-sm max-w-none">
-            <p className="whitespace-pre-wrap">{output.summary}</p>
-          </div>
-        )}
-
-        {activeTab === "deadlines" && (
-          <ul className="space-y-2">
-            {output.deadlines.length > 0 ? (
-              output.deadlines.map((deadline, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <Clock className="h-4 w-4 text-orange-500 mt-0.5" />
-                  <span>{deadline}</span>
-                </li>
-              ))
-            ) : (
-              <p className="text-slate-500">No deadlines found</p>
-            )}
-          </ul>
-        )}
-
-        {activeTab === "risks" && (
-          <ul className="space-y-2">
-            {output.risks.length > 0 ? (
-              output.risks.map((risk, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5" />
-                  <span>{risk}</span>
-                </li>
-              ))
-            ) : (
-              <p className="text-slate-500">No risks identified</p>
-            )}
-          </ul>
-        )}
-
-        {activeTab === "research" && (
-          <div>
-            {output.research ? (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="font-medium">{output.research.entity}</h4>
-                </div>
-                <ul className="space-y-2">
-                  {output.research.snippets.map((snippet, i) => (
-                    <li key={i} className="text-sm text-slate-600">
-                      {snippet}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="text-slate-500">No research data available</p>
-            )}
-          </div>
-        )}
-
-        {activeTab === "actions" && (
-          <ul className="space-y-2">
-            {output.actions && output.actions.length > 0 ? (
-              output.actions.map((action, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <CheckSquare className="h-4 w-4 text-green-500 mt-0.5" />
-                  <span>{action}</span>
-                </li>
-              ))
-            ) : (
-              <p className="text-slate-500">No action items identified</p>
-            )}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
-  );
+    .replace(/^#{1,3} (.+)$/gm, '<h3 class="text-xl font-bold text-white mt-8 mb-4 tracking-tight">$1</h3>');
 }

@@ -18,7 +18,7 @@ export function AdminSidebar() {
   return (
     <aside
       className={cn(
-        "fixed right-0 top-0 h-screen bg-slate-900/95 border-l border-slate-800 transition-all duration-300 z-40 flex flex-col",
+        "relative h-full bg-slate-900/95 border-l border-slate-800 transition-all duration-300 z-40 flex flex-col",
         collapsed ? "w-16" : "w-64"
       )}
     >

@@ -2,15 +2,11 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { CommandInput } from "@/components/CommandInput";
-import { FileUploader } from "@/components/FileUploader";
-import { KnowledgeLibrary } from "@/components/KnowledgeLibrary";
 import { OutputPanel } from "@/components/OutputPanel";
 import { SessionHistory } from "@/components/SessionHistory";
-import { ExecutionStatusDisplay } from "@/components/ExecutionStatus";
-import { ClarificationModal } from "@/components/ClarificationModal";
+import { ChatThread } from "@/components/ChatThread";
 import { BriefingOutput, DynamicOutput, FileUpload, ExecutionStatus, ClarificationOption } from "@/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { BrainCircuit, Upload, Library } from "lucide-react";
+import { BrainCircuit, ChevronRight, ChevronLeft } from "lucide-react";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import {
   createSession,
@@ -19,27 +15,32 @@ import {
   clarifyQuery,
   getExecutionStatus,
   transformResponse,
-  transformBriefing,
   isClarificationResponse,
-  SessionInfo,
   ApiResponse,
-  PrepResponse,
 } from "@/lib/api";
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  type: "text" | "status" | "clarification";
+  status?: ExecutionStatus | null;
+  clarification?: {
+    message: string;
+    options: ClarificationOption[];
+  };
+}
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"upload" | "library">("upload");
-  const [command, setCommand] = useState("");
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [output, setOutput] = useState<BriefingOutput | DynamicOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  const [clarificationNeeded, setClarificationNeeded] = useState(false);
-  const [clarificationOptions, setClarificationOptions] = useState<ClarificationOption[]>([]);
-  const [clarificationMessage, setClarificationMessage] = useState("");
-  const [pendingCommand, setPendingCommand] = useState("");
+  const [sidebarsCollapsed, setSidebarsCollapsed] = useState({ left: false });
 
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -49,28 +50,45 @@ export default function Home() {
 
   const initSession = async () => {
     try {
-      const session = await createSession();
-      setSessionId(session.id);
+      const savedSessionId = localStorage.getItem("linkup_session_id");
+      if (savedSessionId) {
+        setSessionId(savedSessionId);
+        handleSessionSelect(savedSessionId);
+      } else {
+        const session = await createSession();
+        setSessionId(session.id);
+        localStorage.setItem("linkup_session_id", session.id);
+        setMessages([]);
+        setOutput(null);
+      }
     } catch (err) {
       setError("Failed to initialize session");
+      localStorage.removeItem("linkup_session_id");
     }
   };
 
-  const handleNewSession = () => {
-    setSessionId(null);
-    setFiles([]);
-    setOutput(null);
-    setCommand("");
-    setClarificationNeeded(false);
-    initSession();
+  const handleNewSession = async () => {
+    setIsLoading(true);
+    try {
+      const session = await createSession();
+      setSessionId(session.id);
+      localStorage.setItem("linkup_session_id", session.id);
+      setFiles([]);
+      setOutput(null);
+      setMessages([]);
+    } catch (err) {
+      setError("Failed to create new session");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSessionSelect = async (id: string) => {
     setSessionId(id);
+    localStorage.setItem("linkup_session_id", id);
     setFiles([]);
     setOutput(null);
-    setCommand("");
-    setClarificationNeeded(false);
+    setMessages([]);
 
     try {
       const session = await getSession(id);
@@ -92,6 +110,14 @@ export default function Home() {
         try {
           const status = await getExecutionStatus(sessionId);
           setExecutionStatus(status);
+
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.type === "status") {
+              return [...prev.slice(0, -1), { ...last, status }];
+            }
+            return prev;
+          });
         } catch (err) {
           console.error("Failed to fetch execution status:", err);
         }
@@ -114,21 +140,34 @@ export default function Home() {
   const handleClarificationSelect = async (selectedType: string) => {
     if (!sessionId) return;
 
-    setClarificationNeeded(false);
+    setMessages(prev => prev.filter(m => m.type !== "clarification"));
     setIsLoading(true);
     setError(null);
-    setExecutionStatus(null);
+
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: "user",
+      content: `I meant: ${selectedType}`,
+      type: "text"
+    }]);
 
     try {
-      const response = await clarifyQuery(sessionId, pendingCommand, selectedType);
+      const lastUserCommand = messages.filter(m => m.role === "user").pop()?.content || "";
+      const response = await clarifyQuery(sessionId, lastUserCommand, selectedType);
       const transformed = transformResponse(response);
+
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `Briefing manifested in your workspace.`,
+        type: "text"
+      }]);
+
       setOutput(transformed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
-      setOutput(null);
     } finally {
       setIsLoading(false);
-      setPendingCommand("");
     }
   };
 
@@ -141,162 +180,139 @@ export default function Home() {
 
       setIsLoading(true);
       setError(null);
-      setCommand(cmd);
       setExecutionStatus(null);
-      setClarificationNeeded(false);
+
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "user",
+        content: cmd,
+        type: "text"
+      }]);
+
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Processing...",
+        type: "status",
+        status: null
+      }]);
 
       try {
         const response: ApiResponse = await executePrep(sessionId, cmd, researchEntities);
 
         if (isClarificationResponse(response)) {
-          setClarificationNeeded(true);
-          setClarificationOptions(response.suggested_types);
-          setClarificationMessage(response.message);
-          setPendingCommand(cmd);
+          setMessages(prev => [
+            ...prev.filter(m => m.type !== "status"),
+            {
+              id: (Date.now() + 2).toString(),
+              role: "assistant",
+              content: response.message,
+              type: "clarification",
+              clarification: {
+                message: response.message,
+                options: response.suggested_types
+              }
+            }
+          ]);
           setIsLoading(false);
           return;
         }
 
         const transformed = transformResponse(response);
+
+        setMessages(prev => [
+          ...prev.filter(m => m.type !== "status"),
+          {
+            id: (Date.now() + 3).toString(),
+            role: "assistant",
+            content: `Briefing manifested in your workspace.`,
+            type: "text"
+          }
+        ]);
+
         setOutput(transformed);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
-        setOutput(null);
+        setMessages(prev => prev.filter(m => m.type !== "status"));
       } finally {
         setIsLoading(false);
       }
     },
-    [sessionId]
+    [sessionId, messages]
   );
 
   return (
-    <div className="h-screen bg-[#0f172a] flex text-slate-200 overflow-hidden">
-      <div className="w-80 border-r border-slate-800 bg-slate-900/50 backdrop-blur-xl">
-        <SessionHistory
-          currentSessionId={sessionId}
-          onSessionSelect={handleSessionSelect}
-          onNewSession={handleNewSession}
-        />
-      </div>
+    <div className="h-screen bg-[#0f172a] flex text-slate-200 overflow-hidden font-sans">
+      {/* Session History Sidebar (Collapsible) */}
+      <aside className={`transition-all duration-500 border-r border-slate-800/50 bg-slate-900/40 backdrop-blur-xl flex flex-col ${sidebarsCollapsed.left ? "w-0 opacity-0 overflow-hidden" : "w-72"
+        }`}>
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800/50">
+          <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
+            <BrainCircuit className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-white tracking-tight uppercase">Linkup Navi</h1>
+            <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Intelligence Engine</p>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <SessionHistory
+            currentSessionId={sessionId}
+            onSessionSelect={handleSessionSelect}
+            onNewSession={handleNewSession}
+          />
+        </div>
+      </aside>
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-slate-900/40 border-b border-slate-800 backdrop-blur-md sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
-            <div className="p-2.5 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
-              <BrainCircuit className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">
-                Linkup Navi
-              </h1>
-              <p className="text-xs text-slate-400 font-medium">AGI intelligence Engine</p>
-            </div>
-            {sessionId && (
-              <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/50 border border-slate-700">
+      {/* Main Content Area */}
+      <main className="flex-1 flex overflow-hidden relative">
+        {/* Toggle Left Sidebar */}
+        <button
+          onClick={() => setSidebarsCollapsed(prev => ({ ...prev, left: !prev.left }))}
+          className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-12 w-6 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded-full flex items-center justify-center text-slate-400 transition-all opacity-0 hover:opacity-100"
+        >
+          {sidebarsCollapsed.left ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+
+        <div className="flex-1 flex w-full">
+          {/* Chat Column (Middle) */}
+          <div className="flex-1 flex flex-col min-w-[400px] max-w-[45%] border-r border-slate-800/50 bg-slate-900/20">
+            <header className="px-6 py-4 flex items-center justify-between border-b border-slate-800/50">
+              <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-xs text-slate-300 font-mono">
-                  {sessionId.slice(0, 8)}
-                </span>
+                <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">Session: {sessionId?.slice(0, 8)}</span>
               </div>
-            )}
-          </div>
-        </header>
-
-        <main className="flex-1 max-w-7xl mx-auto px-4 py-6 w-full overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-            <div className="flex flex-col gap-6 min-h-0">
-              <Card className="glass-card border-slate-700 overflow-hidden">
-                <CardHeader className="bg-slate-800/30 border-b border-slate-700">
-                  <CardTitle className="text-slate-200">Intelligence Command</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <CommandInput
-                    onSubmit={handleSubmit}
-                    isLoading={isLoading}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card border-slate-700 font-sans flex-1 min-h-0 flex flex-col">
-                <CardHeader className="bg-slate-800/30 border-b border-slate-700 px-0 pb-0">
-                  <div className="flex px-6 pb-2">
-                    <button
-                      onClick={() => setActiveTab("upload")}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${activeTab === "upload"
-                        ? "text-blue-400 border-blue-400"
-                        : "text-slate-500 border-transparent hover:text-slate-300"
-                        }`}
-                    >
-                      <Upload className="h-4 w-4" />
-                      Session Uploads
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("library")}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-all border-b-2 ${activeTab === "library"
-                        ? "text-blue-400 border-blue-400"
-                        : "text-slate-500 border-transparent hover:text-slate-300"
-                        }`}
-                    >
-                      <Library className="h-4 w-4" />
-                      Knowledge Library
-                    </button>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-6 flex-1 min-h-0 overflow-y-auto">
-                  {activeTab === "upload" ? (
-                    <FileUploader
-                      sessionId={sessionId || ""}
-                      files={files}
-                      onFilesChange={setFiles}
-                    />
-                  ) : (
-                    <KnowledgeLibrary />
-                  )}
-                </CardContent>
-              </Card>
-
               {error && (
-                <Card className="border-red-200 bg-red-50">
-                  <CardContent className="py-4">
-                    <p className="text-red-600 text-sm">{error}</p>
-                  </CardContent>
-                </Card>
+                <span className="text-[10px] text-red-400 font-bold uppercase animate-pulse">{error}</span>
               )}
-            </div>
+            </header>
 
-            <div className="space-y-6 overflow-y-auto">
-              {isLoading ? (
-                <Card className="glass-card border-slate-700 overflow-hidden">
-                  <CardHeader className="bg-slate-800/30 border-b border-slate-700">
-                    <CardTitle className="text-slate-200">Processing</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-6">
-                    {executionStatus ? (
-                      <ExecutionStatusDisplay status={executionStatus} />
-                    ) : (
-                      <div className="flex items-center justify-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mr-3" />
-                        <span className="text-slate-400">Initializing...</span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  {clarificationNeeded && (
-                    <ClarificationModal
-                      message={clarificationMessage}
-                      options={clarificationOptions}
-                      onSelect={handleClarificationSelect}
-                    />
-                  )}
-                  <OutputPanel output={output} isLoading={isLoading} />
-                </>
-              )}
+            <ChatThread
+              messages={messages}
+              isLoading={isLoading}
+              onClarify={handleClarificationSelect}
+            />
+
+            <div className="p-6 bg-gradient-to-t from-[#0f172a] via-[#0f172a] to-transparent">
+              <CommandInput onSubmit={handleSubmit} isLoading={isLoading} />
             </div>
           </div>
-        </main>
-      </div>
+
+          {/* Workspace Column (Right) */}
+          <div className="flex-1 flex flex-col p-6 bg-slate-900/10 min-w-0">
+            <OutputPanel
+              output={output}
+              isLoading={isLoading}
+              onRefine={(prompt) => handleSubmit(prompt)}
+              files={files}
+              setFiles={setFiles}
+              sessionId={sessionId || ""}
+            />
+          </div>
+        </div>
+      </main>
+
+      {/* Fixed Admin Sidebar - we'll handle its layout purely in AdminSidebar.tsx next */}
       <AdminSidebar />
     </div>
   );

@@ -3,7 +3,7 @@
 import re
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services.llm import LLMClient, PlannerOutput, PlanStep
 from app.services.linkup import LinkupClient
 from app.services.pdf_parser import PDFParser
@@ -19,7 +19,7 @@ class ExecutionState:
     reasoning: str = ""
     progress: float = 0.0
     complete: bool = False
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # In-memory storage for execution states
@@ -53,7 +53,7 @@ class Executor:
                 reasoning=reasoning,
                 progress=progress,
                 complete=complete,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
 
     @staticmethod
