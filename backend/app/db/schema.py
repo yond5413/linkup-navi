@@ -85,6 +85,15 @@ class SessionOutput:
         return asdict(self)
 
 
+@dataclass
+class AppSetting:
+    key: str
+    value: str
+
+    def to_dict(self):
+        return asdict(self)
+
+
 DATABASE_PATH = get_settings().db_path
 
 
@@ -141,7 +150,7 @@ async def init_db():
             created_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
-    """)
+""")
     await db.execute("""
         CREATE TABLE IF NOT EXISTS session_outputs (
             id TEXT PRIMARY KEY,
@@ -149,6 +158,12 @@ async def init_db():
             output_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         )
     """)
     await db.commit()
@@ -485,7 +500,14 @@ class MessageRepository:
         db = await get_connection()
         await db.execute(
             "INSERT INTO session_messages (id, session_id, role, content, msg_type, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (msg.id, msg.session_id, msg.role, msg.content, msg.msg_type, msg.created_at),
+            (
+                msg.id,
+                msg.session_id,
+                msg.role,
+                msg.content,
+                msg.msg_type,
+                msg.created_at,
+            ),
         )
         await db.commit()
         await db.close()
@@ -545,3 +567,26 @@ class MessageRepository:
         if row:
             return row[0]
         return None
+
+
+class AppSettingsRepository:
+    @staticmethod
+    async def get(key: str) -> Optional[str]:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (key,),
+        )
+        row = await cursor.fetchone()
+        await db.close()
+        return row[0] if row else None
+
+    @staticmethod
+    async def set(key: str, value: str):
+        db = await get_connection()
+        await db.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        await db.commit()
+        await db.close()

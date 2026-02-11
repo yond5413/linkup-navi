@@ -1,10 +1,45 @@
 """Admin routes for debugging and inspection."""
 
+import asyncio
 from fastapi import APIRouter, HTTPException
-from app.db.schema import TaskRepository
+from pydantic import BaseModel
+from app.db.schema import TaskRepository, AppSettingsRepository
 from app.services.vector_memory import get_vector_memory_service
+from app.config import AVAILABLE_MODELS, DEFAULT_MODEL
 
 router = APIRouter()
+
+
+class SetModelRequest(BaseModel):
+    model: str
+
+
+async def get_current_model_info():
+    model_id = await AppSettingsRepository.get("llm_model") or DEFAULT_MODEL
+    model_info = next(
+        (m for m in AVAILABLE_MODELS if m["id"] == model_id), AVAILABLE_MODELS[0]
+    )
+    return model_info, model_id
+
+
+@router.get("/admin/model")
+async def get_current_model():
+    model_info = (await get_current_model_info())[0]
+    return {"current": model_info, "available": AVAILABLE_MODELS}
+
+
+@router.post("/admin/model")
+async def set_current_model(request: SetModelRequest):
+    model_id = request.model
+    if not any(m["id"] == model_id for m in AVAILABLE_MODELS):
+        raise HTTPException(status_code=400, detail="Invalid model")
+    await AppSettingsRepository.set("llm_model", model_id)
+    return {"model": model_id}
+
+
+@router.get("/admin/models")
+async def list_available_models():
+    return {"models": AVAILABLE_MODELS}
 
 
 @router.get("/admin/tasks")

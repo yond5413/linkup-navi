@@ -4,6 +4,7 @@ import { useState, KeyboardEvent, useEffect, useCallback, useRef } from "react";
 import { Send, Search, X, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
+import { ModelSelector } from "@/components/ModelSelector";
 
 interface CommandInputProps {
   onSubmit: (command: string, researchEntities?: string[]) => void;
@@ -117,7 +118,8 @@ export function CommandInput({ onSubmit, isLoading, placeholder }: CommandInputP
               className="flex-1 min-h-[44px] max-h-[200px] py-3 bg-transparent border-0 focus-visible:ring-0 text-slate-200 placeholder:text-slate-500 resize-none font-sans text-[15px] leading-relaxed"
             />
 
-            <div className="flex items-center gap-1.5 pb-0.5 pr-0.5">
+<div className="flex items-center gap-1.5 pb-0.5 pr-0.5">
+              <ModelSelector />
               <Button
                 onClick={() => setResearchMode(!researchMode)}
                 size="icon"

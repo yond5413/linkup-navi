@@ -2,10 +2,19 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+AVAILABLE_MODELS = [
+    {"id": "arcee-ai/trinity-large-preview:free", "name": "Arcee Trinity"},
+    {"id": "stepfun/step-3.5-flash:free", "name": "Step-3.5 Flash"},
+    {"id": "openai/gpt-oss-120b:free", "name": "GPT-OSS 120B"},
+    {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B"},
+]
+
+DEFAULT_MODEL = "arcee-ai/trinity-large-preview:free"
 
 
 class Settings(BaseSettings):
@@ -44,6 +53,12 @@ class Settings(BaseSettings):
     @property
     def uploads_path(self) -> Path:
         path = Path(self.uploads_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def checkpoints_path(self) -> Path:
+        path = Path(self.memory_dir) / "checkpoints"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

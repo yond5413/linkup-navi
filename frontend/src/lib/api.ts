@@ -293,6 +293,31 @@ export async function searchMemory(query: string, k: number): Promise<MemorySear
   return data.results;
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
+export interface ModelResponse {
+  current: ModelInfo;
+  available: ModelInfo[];
+}
+
+export async function getCurrentModel(): Promise<ModelResponse> {
+  const res = await fetch(`${API_BASE}/admin/model`);
+  if (!res.ok) throw new Error("Failed to fetch model");
+  return res.json();
+}
+
+export async function setCurrentModel(modelId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/model`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: modelId }),
+  });
+  if (!res.ok) throw new Error("Failed to set model");
+}
+
 export async function deleteKnowledgeFile(fileId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/knowledge/files/${fileId}`, {
     method: "DELETE",
