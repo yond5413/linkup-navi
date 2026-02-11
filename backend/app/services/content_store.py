@@ -252,6 +252,55 @@ class ContentStore:
         await db.close()
         return [self._row_to_content_item(row) for row in rows]
 
+    async def query_semantic(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> List[ContentItem]:
+        """Perform semantic search across all content using vector embeddings.
+
+        1. Embed the query using Cohere
+        2. Search FAISS index for similar content
+        3. Match results back to ContentItems via text similarity
+        4. Return top_k results sorted by relevance
+
+        Args:
+            query: Natural language search query
+            top_k: Maximum number of results to return (default 5)
+
+        Returns:
+            List of ContentItems sorted by semantic similarity
+        """
+        vector_results = self.vector_service.query_memory(query, top_k * 2)
+
+        if not vector_results:
+            return []
+
+        db = await get_connection()
+
+        results = []
+        seen_ids = set()
+
+        for text_chunk in vector_results:
+            cursor = await db.execute(
+                """SELECT id, session_id, source_type, title, content, metadata, 
+                   file_path, sender, recipients, timestamp, thread_id, 
+                   embedded_at, embedding_id FROM content_items 
+                   WHERE content LIKE ? OR title LIKE ? LIMIT 1""",
+                (f"%{text_chunk[:100]}%", f"%{text_chunk[:100]}%"),
+            )
+            row = await cursor.fetchone()
+            if row:
+                item = self._row_to_content_item(row)
+                if item.id not in seen_ids:
+                    seen_ids.add(item.id)
+                    results.append(item)
+                    if len(results) >= top_k:
+                        break
+
+        await db.close()
+        return results
+
     def _row_to_content_item(self, row: tuple) -> ContentItem:
         """Convert database row to ContentItem."""
         return ContentItem(

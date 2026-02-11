@@ -131,7 +131,7 @@ Return a valid JSON object matching the provided schema."""
 Decompose this request into executable tasks. Consider what information is needed and in what order."""
 
         try:
-            result = self.llm.generate_json(prompt, schema, system_prompt)
+            result = await self.llm.generate_json(prompt, schema, system_prompt)
             tasks = []
             for t in result.get("tasks", []):
                 tasks.append(

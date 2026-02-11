@@ -27,6 +27,7 @@ from app.services.content_store import ContentStore, create_content_store
 from app.services.email_processor import EmailProcessor, create_email_processor
 from app.services.reply_generator import ReplyGenerator, create_reply_generator
 from app.core.fact_checker import FactChecker, create_fact_checker
+from app.services.llm_router import LLMRouter, create_llm_router
 
 
 class UnifiedAgent:
@@ -54,6 +55,7 @@ class UnifiedAgent:
         self.email_processor = create_email_processor()
         self.reply_generator = create_reply_generator()
         self.fact_checker = create_fact_checker()
+        self.llm_router = create_llm_router()
 
     async def run_full(
         self, user_input: str, session_id: str = None, mode: str = "auto"
@@ -95,7 +97,7 @@ class UnifiedAgent:
             plan=plan, session_id=session_id, executor_func=self._execute_task
         )
 
-        response = self._synthesize_response(results)
+        response = await self._synthesize_response(results)
 
         return {
             "original_input": user_input,
@@ -205,10 +207,30 @@ class UnifiedAgent:
         else:
             return "general"
 
-    def _synthesize_response(self, results: Dict[str, Any]) -> str:
-        """Synthesize final response from execution results."""
+    async def _synthesize_response(self, results: Dict[str, Any]) -> str:
+        """Synthesize final response from execution results using LLMRouter."""
         completed = results.get("completed", [])
-        return f"Processed {len(completed)} tasks successfully."
+        task_count = len(completed)
+
+        synthesis_prompt = f"""Synthesize the results of {task_count} completed tasks into a coherent response.
+
+Completed tasks: {[c.get("type", "unknown") for c in completed]}
+
+Provide a clear, concise summary of what was accomplished."""
+
+        try:
+            response = await self.llm_router.generate(
+                prompt=synthesis_prompt,
+                task_type="synthesize",
+                system="You are a helpful assistant that synthesizes task results into clear responses.",
+            )
+            return response
+        except Exception:
+            return f"Processed {task_count} tasks successfully."
+
+    def _get_model_for_task(self, task_type: TaskType) -> str:
+        """Get the appropriate model for a task type."""
+        return self.llm_router.select_model(task_type)
 
 
 def create_unified_agent() -> UnifiedAgent:

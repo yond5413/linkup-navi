@@ -53,6 +53,18 @@ from app.agents.unified_agent import UnifiedAgent, create_unified_agent
 from app.agents.email_agent import EmailAgent, create_email_agent
 
 # =============================================================================
+# AGENT 4: Adaptive LLM Routing - Task-based Model Selection
+# =============================================================================
+
+from app.core.model_routing import (
+    TASK_COMPLEXITY_MAP,
+    get_model_for_task,
+    get_fallback_model,
+    get_model_by_complexity,
+)
+from app.services.llm_router import LLMRouter, create_llm_router
+
+# =============================================================================
 # LEGACY COMPONENTS (For backward compatibility)
 # =============================================================================
 
@@ -93,6 +105,13 @@ __all__ = [
     "create_unified_agent",
     "EmailAgent",
     "create_email_agent",
+    # Agent 4 - Adaptive LLM Routing
+    "TASK_COMPLEXITY_MAP",
+    "get_model_for_task",
+    "get_fallback_model",
+    "get_model_by_complexity",
+    "LLMRouter",
+    "create_llm_router",
     # Legacy
     "Planner",
     "Executor",
