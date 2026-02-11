@@ -590,3 +590,24 @@ class AppSettingsRepository:
         )
         await db.commit()
         await db.close()
+
+
+@dataclass
+class ContentItemModel:
+    """Database model for content items."""
+    id: str
+    source_type: str
+    title: str
+    content: str
+    metadata: str  # JSON string
+    session_id: Optional[str] = None
+    file_path: Optional[str] = None
+    sender: Optional[str] = None
+    recipients: Optional[str] = None  # JSON list
+    timestamp: Optional[str] = None
+    thread_id: Optional[str] = None
+    embedded_at: Optional[str] = None
+    embedding_id: Optional[int] = None
+
+    def to_dict(self):
+        return asdict(self)
