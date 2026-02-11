@@ -20,9 +20,11 @@ export function KnowledgeLibrary() {
     const [memoryStatus, setMemoryStatus] = useState<{ total_chunks: number; index_name: string } | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     const loadData = async () => {
         setIsLoading(true);
+        setError(null);
         try {
             const [filesData, statusData] = await Promise.all([
                 getAllFiles(),
@@ -30,8 +32,12 @@ export function KnowledgeLibrary() {
             ]);
             setFiles(filesData);
             setMemoryStatus(statusData);
-        } catch (error) {
-            console.error("Failed to load knowledge library:", error);
+        } catch (err) {
+            const errorMessage = err instanceof TypeError && err.message === 'Failed to fetch'
+                ? 'Cannot connect to backend server. Please ensure it is running on port 8000.'
+                : 'Failed to load knowledge library. Please try again.';
+            console.error("Failed to load knowledge library:", err);
+            setError(errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -79,7 +85,21 @@ export function KnowledgeLibrary() {
                 </Button>
             </div>
 
-            {memoryStatus && (
+            {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-center">
+                    <p className="text-red-400 text-sm">{error}</p>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={loadData}
+                        className="mt-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    >
+                        Retry
+                    </Button>
+                </div>
+            )}
+
+            {!error && memoryStatus && (
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-3">
                         <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">

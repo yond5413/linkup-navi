@@ -2,88 +2,89 @@ import asyncio
 import sys
 import os
 
-# Add backend to path
-sys.path.append(os.path.join(os.getcwd(), 'backend'))
+sys.path.append(os.path.join(os.getcwd(), "backend"))
 
 from app.services.linkup import LinkupClient
-from app.core.executor import Executor
-from app.services.ollama import OllamaClient
-from app.services.pdf_parser import PDFParser
-from app.core.planner import PlannerOutput, PlanStep
 
-async def test_linkup_integration():
-    print("Testing LinkupClient refactor...")
+
+async def test_linkup_async():
+    """Test async_search method specifically."""
+    print("Testing LinkupClient async_search method...")
     client = LinkupClient()
-    
-    # Test mock search (or real search if API key set)
-    result = await client.search("Microsoft revenue 2024")
-    print(f"Search Answer: {result.get('answer')}")
-    print(f"Sources: {len(result.get('sources', []))}")
-    
-    if result.get('answer'):
-        print("✅ LinkupClient search returns 'answer'")
-    if 'sources' in result:
-        print("✅ LinkupClient search returns 'sources'")
 
-    print("\nTesting Executor synthesis with Linkup data...")
-    # Mock some file contents
-    file_contents = {"agenda.pdf": "Meeting with Microsoft about AI."}
-    
-    # Create a mock plan
-    plan = PlannerOutput(
-        intent="Prepare for meeting with Microsoft",
-        steps=[
-            PlanStep(
-                step_id="research_1",
-                description="Research Microsoft",
-                action_type="research",
-                depends_on=[],
-                parameters={"entities": ["Microsoft"]}
-            )
-        ],
-        needs_linkup=True,
-        entities_to_research=["Microsoft"]
-    )
-    
-    executor = Executor(OllamaClient(), client, PDFParser())
-    
-    # Run the executor
-    # We might need to mock Ollama if it's not running, but let's see. 
-    # Actually, let's just test the _synthesize_briefing specifically if Ollama fails.
+    if not client.client:
+        print("[WARN] No API key configured - testing mock mode")
+        result = await client.search("test query")
+        print(f"Mock result keys: {list(result.keys())}")
+        return
+
     try:
-        run_result = await executor.run(plan, file_contents)
-        briefing = run_result["briefing"]
-        print(f"Actionable Briefing keys: {briefing.keys()}")
-        print(f"Research Snippet: {briefing.get('research_snippet')[:100]}...")
-        if "Microsoft" in briefing.get('research_snippet'):
-             print("✅ Executor correctly included research in briefing")
+        result = await client.client.async_search(
+            query="Microsoft revenue 2024", depth="deep", output_type="sourcedAnswer"
+        )
+        print("[OK] async_search succeeded!")
+        print(f"   Response type: {type(result)}")
+        print(f"   Has answer: {hasattr(result, 'answer')}")
+        print(f"   Has sources: {hasattr(result, 'sources')}")
+        if hasattr(result, "answer"):
+            print(f"   Answer preview: {result.answer[:100]}...")
+        if hasattr(result, "sources"):
+            print(f"   Sources count: {len(result.sources)}")
     except Exception as e:
-        print(f"❌ Executor run failed (likely Ollama connection): {e}")
-        # Test just the data transformation if Ollama is down
-        results = {
-            "research_1": {
-                "research": {
-                    "Microsoft": result
-                }
-            }
-        }
-        # Manual check of _synthesize_briefing logic
-        summary_parts = []
-        research_snippet = ""
-        for step_id, res in results.items():
-            if "research" in res:
-                research_parts = []
-                for entity, info in res["research"].items():
-                    answer = info.get('answer', 'No research answer available.')
-                    sources = info.get('sources', [])
-                    source_links = ", ".join([f"[{s.get('name', 'Source')}]({s.get('url', '#')})" for s in sources[:3]])
-                    research_parts.append(
-                        f"**{entity}**: {answer}\n*Sources: {source_links}*"
-                    )
-                research_snippet = "\n\n".join(research_parts)
-        print(f"Extracted Research Snippet: {research_snippet[:100]}...")
-        if "Microsoft" in research_snippet and "Sources:" in research_snippet:
-            print("✅ Data transformation logic in Executor works")
+        print(f"[ERROR] async_search failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+async def test_linkup_wrapper():
+    """Test the wrapper search method."""
+    print("\nTesting LinkupClient.search() wrapper...")
+    client = LinkupClient()
+
+    result = await client.search("Microsoft revenue 2024")
+    print(f"Result keys: {list(result.keys())}")
+    answer = result.get("answer", "None")
+    print(
+        f"Search Answer: {answer[:100] if answer and answer != 'None' else 'None'}..."
+    )
+    print(f"Sources count: {len(result.get('sources', []))}")
+
+    if result.get("answer") and result.get("sources"):
+        print("[OK] Wrapper returns valid response structure")
+        return True
+    else:
+        print("[ERROR] Wrapper missing expected fields")
+        return False
+
+
+async def test_get_company_info():
+    """Test get_company_info method."""
+    print("\nTesting get_company_info()...")
+    client = LinkupClient()
+    result = await client.get_company_info("Microsoft")
+
+    print(f"Result keys: {list(result.keys())}")
+    if "answer" in result and "sources" in result:
+        print("[OK] get_company_info returns valid structure")
+        return True
+    return False
+
+
+async def run_all_tests():
+    """Run all Linkup tests."""
+    print("=" * 60)
+    print("LINKUP CLIENT TEST SUITE")
+    print("=" * 60)
+
+    await test_linkup_async()
+    await test_linkup_wrapper()
+    await test_get_company_info()
+
+    print("\n" + "=" * 60)
+    print("TESTS COMPLETE")
+    print("=" * 60)
+
 
 if __name__ == "__main__":
-    asyncio.run(test_linkup_integration())
+    asyncio.run(run_all_tests())

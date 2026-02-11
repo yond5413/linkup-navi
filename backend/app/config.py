@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     openrouter_model: str = "arcee-ai/trinity-large-preview:free"
 
     linkup_api_key: Optional[str] = None
-    linkup_api_url: str = "https://api.linkup.com/v1"
 
     host: str = "0.0.0.0"
     port: int = 8000
