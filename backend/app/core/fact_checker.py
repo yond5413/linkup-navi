@@ -34,6 +34,8 @@ from pydantic import BaseModel
 from app.services.llm import create_llm_client
 from app.services.linkup import create_linkup_client
 from app.utils.ics_utils import ICSUtils
+from app.services.content_store import ContentStore, create_content_store
+from app.models.content_item import ContentItem, SourceType
 
 
 class FactClaim(BaseModel):
@@ -562,6 +564,89 @@ JSON array:
         )
 
         return filepath
+
+    async def verify_with_store(
+        self,
+        claim: str,
+        content_store: ContentStore,
+        source_types: list[SourceType] = None,
+        session_id: str = None,
+    ) -> dict[str, any]:
+        """Verify claim using ContentStore for local sources.
+
+        Args:
+            claim: The claim to verify
+            content_store: ContentStore for querying local documents
+            source_types: Optional filter for source types
+            session_id: Optional session ID filter
+
+        Returns:
+            Dict with verification results plus:
+                - local_sources_queried: Number of sources queried
+                - content_store_queried: True
+        """
+        if source_types is None:
+            source_types = [
+                SourceType.PDF,
+                SourceType.EMAIL,
+                SourceType.RESEARCH,
+                SourceType.NOTE,
+            ]
+
+        local_docs = []
+        for st in source_types:
+            items = await content_store.query_by_source(st)
+            if session_id:
+                items = [i for i in items if i.session_id == session_id]
+
+            local_docs.extend(
+                [
+                    {
+                        "content": item.content,
+                        "source": f"{item.source_type.value}: {item.title}",
+                        "id": item.id,
+                        "metadata": item.metadata,
+                    }
+                    for item in items[:20]
+                ]
+            )
+
+        result = await self.verify_claim(claim, local_docs)
+
+        result["local_sources_queried"] = len(local_docs)
+        result["content_store_queried"] = True
+
+        return result
+
+    async def verify_claims_with_store(
+        self,
+        claims: list[str],
+        content_store: ContentStore,
+        source_types: list[SourceType] = None,
+        session_id: str = None,
+    ) -> list[dict[str, any]]:
+        """Verify multiple claims using ContentStore.
+
+        Args:
+            claims: List of claims to verify
+            content_store: ContentStore for querying local documents
+            source_types: Optional filter for source types
+            session_id: Optional session ID filter
+
+        Returns:
+            List of verification result dicts
+        """
+        results = []
+        for claim in claims:
+            result = await self.verify_with_store(
+                claim=claim,
+                content_store=content_store,
+                source_types=source_types,
+                session_id=session_id,
+            )
+            results.append(result)
+
+        return results
 
 
 # Factory function

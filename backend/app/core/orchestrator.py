@@ -1,4 +1,10 @@
-"""Agent Orchestrator - Wraps ReActAgent for backward compatibility."""
+"""Agent Orchestrator - Main entry point for agent execution.
+
+Modes:
+- "react": ReAct agent (default)
+- "legacy": Legacy planner/executor
+- "full": Unified agent combining Agents 1, 2, 3
+"""
 
 import logging
 from typing import Optional, List, Dict, Any
@@ -10,6 +16,7 @@ from app.core.react_agent import ReActAgent
 from app.core.query_classifier import classify_query, QueryType
 from app.services.vector_memory import get_vector_memory_service
 from app.db.schema import TaskRepository
+from app.agents.unified_agent import UnifiedAgent, create_unified_agent
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +27,13 @@ class AgentOrchestrator:
         llm: Optional[LLMClient] = None,
         linkup: Optional[LinkupClient] = None,
         pdf_parser: Optional[PDFParser] = None,
+        unified_agent: Optional[UnifiedAgent] = None,
     ):
         self.llm = llm or LLMClient()
         self.linkup = linkup or LinkupClient()
         self.pdf_parser = pdf_parser or PDFParser()
         self.react_agent = ReActAgent()
+        self.unified_agent = unified_agent or create_unified_agent()
 
     async def run(
         self,
@@ -39,10 +48,45 @@ class AgentOrchestrator:
             return await self._run_legacy(
                 command, file_contents, session_id, session_goal
             )
+        elif mode == "full":
+            return await self._run_unified(command, session_id, mode)
         else:
             return await self._run_agent(
                 command, file_contents, session_id, session_goal, mode
             )
+
+    async def _run_unified(
+        self,
+        command: str,
+        session_id: str,
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Run the unified agent combining Agents 1, 2, 3."""
+        result = await self.unified_agent.run_full(
+            user_input=command, session_id=session_id, mode=mode
+        )
+
+        try:
+            task = await TaskRepository.create_task(
+                session_id=session_id,
+                user_input=command,
+                inferred_intent=result.get("intent", "unknown"),
+                tools_used="UnifiedAgent",
+                status="completed",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create task: {e}")
+
+        return {
+            "status": "success",
+            "response": result.get("response", ""),
+            "thought": "",
+            "execution_trace": [],
+            "completed_steps": result.get("tasks", []),
+            "mode": "full",
+            "agent": "unified",
+            "unified_result": result,
+        }
 
     async def _run_agent(
         self,

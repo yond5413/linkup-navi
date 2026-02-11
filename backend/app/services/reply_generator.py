@@ -32,6 +32,8 @@ from typing import List, Dict, Any, Optional
 
 from app.services.llm import create_llm_client
 from app.utils.ics_utils import ICSUtils
+from app.services.content_store import ContentStore, create_content_store
+from app.models.content_item import ContentItem, SourceType
 
 
 class ReplyGenerator:
@@ -468,6 +470,101 @@ Return ONLY a number between 0 and 100 representing the tone match percentage.
                     )
 
         return events
+
+    async def generate_reply_with_store(
+        self,
+        original_email: dict[str, any],
+        content_store: ContentStore,
+        sender_email: str,
+        user_intent: str = "respond",
+        action_items: list[str] = None,
+        limit: int = 5,
+        max_iterations: int = 2,
+    ) -> dict[str, any]:
+        """Generate reply with ContentStore for tone examples.
+
+        Args:
+            original_email: Original email dict
+            content_store: ContentStore for querying tone examples
+            sender_email: Email address to query tone examples for
+            user_intent: User's intent
+            action_items: Action items to address
+            limit: Max tone examples to retrieve
+            max_iterations: Max tone refinement iterations
+
+        Returns:
+            Dict with all generate_reply fields plus:
+                - tone_examples_used: Number of examples used
+                - content_store_queried: True
+        """
+        sender_emails = await content_store.query_by_source(SourceType.EMAIL)
+
+        tone_examples = [e for e in sender_emails if e.sender == sender_email][:limit]
+
+        tone_example_dicts = [
+            {
+                "body": item.content,
+                "subject": item.title,
+                "sender": item.sender,
+                "date": item.timestamp.isoformat() if item.timestamp else None,
+            }
+            for item in tone_examples
+        ]
+
+        result = await self.generate_reply(
+            original_email,
+            tone_example_dicts,
+            user_intent,
+            action_items,
+            max_iterations,
+        )
+
+        result["tone_examples_used"] = len(tone_example_dicts)
+        result["content_store_queried"] = True
+
+        return result
+
+    async def generate_replies_with_store(
+        self,
+        original_emails: list[dict[str, any]],
+        content_store: ContentStore,
+        user_intent: str = "respond",
+        action_items_by_email: dict[str, list[str]] = None,
+        limit: int = 5,
+        max_iterations: int = 2,
+    ) -> list[dict[str, any]]:
+        """Generate replies for multiple emails using ContentStore.
+
+        Args:
+            original_emails: List of original email dicts
+            content_store: ContentStore for querying tone examples
+            user_intent: User's intent
+            action_items_by_email: Dict mapping email index to action items
+            limit: Max tone examples per email
+            max_iterations: Max tone refinement iterations
+
+        Returns:
+            List of reply result dicts
+        """
+        results = []
+        for i, email in enumerate(original_emails):
+            sender = email.get("sender", "")
+            action_items = (
+                action_items_by_email.get(str(i), []) if action_items_by_email else None
+            )
+
+            result = await self.generate_reply_with_store(
+                original_email=email,
+                content_store=content_store,
+                sender_email=sender,
+                user_intent=user_intent,
+                action_items=action_items,
+                limit=limit,
+                max_iterations=max_iterations,
+            )
+            results.append(result)
+
+        return results
 
 
 # Factory function

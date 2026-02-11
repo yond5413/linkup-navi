@@ -30,6 +30,8 @@ from email.policy import default
 
 from app.utils.ics_utils import ICSUtils
 from app.services.llm import create_llm_client
+from app.services.content_store import ContentStore, create_content_store
+from app.models.content_item import ContentItem, SourceType
 
 
 class EmailProcessor:
@@ -416,6 +418,91 @@ If no action items found, return: []
         sender_emails.sort(key=get_date, reverse=True)
 
         return sender_emails[:limit]
+
+    async def parse_eml_to_content_item(
+        self, file_path: str, content_store: ContentStore = None, session_id: str = None
+    ) -> ContentItem:
+        """Parse .eml file and store as ContentItem.
+
+        Args:
+            file_path: Path to .eml file
+            content_store: Optional ContentStore instance for persistence
+            session_id: Session ID for association
+
+        Returns:
+            ContentItem instance (stored if content_store provided)
+        """
+        from datetime import datetime
+
+        email_data = await self.parse_eml(file_path)
+
+        item = ContentItem(
+            id=email_data["id"],
+            session_id=session_id,
+            source_type=SourceType.EMAIL,
+            title=email_data["subject"],
+            content=email_data["body"],
+            sender=email_data["sender"],
+            recipients=email_data["recipients"],
+            thread_id=email_data["thread_id"],
+            metadata={
+                "cc": email_data.get("cc", []),
+                "attachments": email_data.get("attachments", []),
+                "calendar_event": email_data.get("calendar_event"),
+                "message_id": email_data.get("message_id"),
+                "references": email_data.get("references"),
+                "has_calendar_event": email_data.get("metadata", {}).get(
+                    "has_calendar_event", False
+                ),
+            },
+        )
+
+        if email_data["date"]:
+            try:
+                item.timestamp = datetime.fromisoformat(email_data["date"])
+            except (ValueError, TypeError):
+                pass
+
+        if content_store:
+            stored = await content_store.add_email(
+                subject=email_data["subject"],
+                sender=email_data["sender"],
+                body=email_data["body"],
+                recipients=email_data["recipients"],
+                thread_id=email_data["thread_id"],
+                timestamp=item.timestamp,
+                session_id=session_id,
+            )
+            return stored
+
+        return item
+
+    async def parse_eml_to_content_items(
+        self,
+        file_paths: list[str],
+        content_store: ContentStore = None,
+        session_id: str = None,
+    ) -> list[ContentItem]:
+        """Parse multiple .eml files and store as ContentItems.
+
+        Args:
+            file_paths: List of paths to .eml files
+            content_store: Optional ContentStore instance for persistence
+            session_id: Session ID for association
+
+        Returns:
+            List of ContentItem instances
+        """
+        items = []
+        for file_path in file_paths:
+            try:
+                item = await self.parse_eml_to_content_item(
+                    file_path, content_store=content_store, session_id=session_id
+                )
+                items.append(item)
+            except Exception as e:
+                print(f"Error parsing {file_path}: {e}")
+        return items
 
 
 # Factory function
