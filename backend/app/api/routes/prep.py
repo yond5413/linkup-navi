@@ -121,12 +121,16 @@ async def prepare_meeting(request: PrepRequest):
     except Exception as e:
         logger.warning(f"Failed to save user message: {e}")
 
+    memory = SessionMemory(session_id)
+    all_file_contents = await memory.get_all_file_contents()
+    file_contents = all_file_contents or {}
+
     orchestrator = AgentOrchestrator(llm=llm)
 
     result = await orchestrator.run(
         session_id=session_id,
         command=command,
-        file_contents={},
+        file_contents=file_contents,
         session_goal=session_goal,
         explicit_entities=request.research_entities,
         mode=mode,
