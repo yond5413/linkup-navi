@@ -10,6 +10,7 @@ from app.services.working_memory import WorkingMemory
 from app.services.memory import create_memory
 from app.services.llm import LLMClient
 from app.core.checkpoint import CheckpointManager
+from app.core.entity_extractor import EntityExtractor
 from app.db.schema import MessageRepository
 
 
@@ -61,6 +62,15 @@ class ReActAgent:
 
         if files:
             working_mem.add_artifact("files", files)
+            entity_research = await self._extract_and_research_entities(
+                files, session_id
+            )
+            if entity_research:
+                working_mem.add_artifact("entity_research_list", entity_research)
+                working_mem.add_artifact(
+                    "entity_research_formatted",
+                    self._format_entity_research(entity_research),
+                )
 
         if self.config.enable_checkpointing:
             self.checkpoint_manager = CheckpointManager(session_id)
@@ -138,9 +148,23 @@ class ReActAgent:
     ) -> str:
         context = working_mem.get_context_for_llm()
         tools_available = self.tool_registry.get_tool_names()
+        entity_research = (
+            working_mem.get_artifact("entity_research_formatted")
+            or "No pre-research conducted."
+        )
 
         prompt = f"""
 You are a reasoning agent. Based on the conversation so far, determine your next step.
+
+CRITICAL RESEARCH PROTOCOL:
+When documents mention specific companies with funding, acquisitions, or product launches:
+1. EXTRACT company names from the document
+2. SEARCH specific queries: "[Company] [event] [year]"
+3. NEVER search generic terms like "competitor research", "market analysis", or "SWOT"
+4. CITE specific dollar amounts, dates, and investors from the research
+
+Pre-researched Entity Information:
+{entity_research}
 
 User Goal: {user_input}
 
@@ -416,6 +440,72 @@ Respond with JSON:
             intent=response.get("intent", user_input),
             thought=response.get("thought", ""),
         )
+
+    async def _extract_and_research_entities(
+        self, file_contents: Dict[str, str], session_id: str
+    ) -> List[Dict]:
+        """Extract entities from files and research them."""
+        from app.tools.research_tools import linkup_search
+
+        extractor = EntityExtractor()
+        all_research = []
+        all_entities = []
+
+        for filename, content in file_contents.items():
+            entities = await extractor.extract(content, source_file=filename)
+            all_entities.extend(entities)
+
+        top_entities = extractor.get_top_entities(all_entities, limit=3)
+
+        for entity in top_entities:
+            queries = extractor.generate_queries(entity, max_queries=2)
+
+            for query in queries:
+                try:
+                    result = await linkup_search(query=query, session_id=session_id)
+                    all_research.append(
+                        {
+                            "entity": entity.name,
+                            "query": query,
+                            "result": result,
+                            "significance": entity.significance,
+                        }
+                    )
+                except Exception:
+                    pass
+
+        return all_research
+
+    def _format_entity_research(self, entity_research: List[Dict]) -> str:
+        """Format entity research for prompt insertion."""
+        if not entity_research:
+            return "No pre-research conducted."
+
+        lines = []
+        for r in entity_research:
+            result_data = r.get("result", {})
+            results = (
+                result_data.get("results", []) if isinstance(result_data, dict) else []
+            )
+
+            answer_text = ""
+            if results:
+                if isinstance(results, list) and len(results) > 0:
+                    first_result = results[0]
+                    answer_text = (
+                        first_result.get("answer", "")[:500]
+                        if isinstance(first_result, dict)
+                        else str(results[0])[:500]
+                    )
+                elif isinstance(results, dict):
+                    answer_text = results.get("answer", "")[:500]
+
+            lines.append(f"Entity: {r['entity']}")
+            lines.append(f"Query: {r['query']}")
+            lines.append(f"Research: {answer_text}")
+            lines.append("")
+
+        return "\n".join(lines)
 
 
 def create_react_agent(config: AgentConfig = None) -> ReActAgent:
