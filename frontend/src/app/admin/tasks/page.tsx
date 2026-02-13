@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { TaskDetailModal } from "@/components/TaskDetailModal";
+import { ChevronRight } from "lucide-react";
 
 interface Task {
   task_id: string;
@@ -17,6 +19,7 @@ export default function AdminTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchTasks() {
@@ -99,11 +102,16 @@ export default function AdminTasksPage() {
                       <th className="p-4 font-medium text-slate-300">Tools</th>
                       <th className="p-4 font-medium text-slate-300">Status</th>
                       <th className="p-4 font-medium text-slate-300">Timestamp</th>
+                      <th className="p-4 font-medium text-slate-300"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {tasks.map((task) => (
-                      <tr key={task.task_id} className="hover:bg-white/5 transition-colors">
+                      <tr
+                        key={task.task_id}
+                        className="hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => setSelectedTaskId(task.task_id)}
+                      >
                         <td className="p-4 font-mono text-xs text-slate-400 max-w-[120px] truncate">
                           {task.task_id}
                         </td>
@@ -124,6 +132,9 @@ export default function AdminTasksPage() {
                         <td className="p-4 text-slate-400 text-xs whitespace-nowrap">
                           {task.timestamp ? new Date(task.timestamp).toLocaleString() : "-"}
                         </td>
+                        <td className="p-4">
+                          <ChevronRight className="h-4 w-4 text-slate-500" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -134,6 +145,9 @@ export default function AdminTasksPage() {
         </div>
         <AdminSidebar />
       </div>
+      {selectedTaskId && (
+        <TaskDetailModal taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+      )}
     </div>
   );
 }

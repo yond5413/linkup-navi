@@ -49,6 +49,15 @@ async def get_recent_tasks(limit: int = 50):
     return {"tasks": tasks}
 
 
+@router.get("/admin/tasks/{task_id}")
+async def get_task_detail(task_id: str):
+    """Get detailed execution info for a specific task."""
+    task = await TaskRepository.get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": task}
+
+
 @router.get("/admin/memory/stats")
 async def get_memory_stats():
     """Memory statistics endpoint.

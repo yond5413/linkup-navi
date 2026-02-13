@@ -1,4 +1,6 @@
 import re
+import json
+from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
@@ -39,6 +41,20 @@ class EntityExtractor:
         "product",
         "platform",
     ]
+
+    QUERY_GENERATION_PROMPT = """You are a query generation expert. Given an entity and its context, generate 2-4 highly specific search queries that will retrieve accurate, up-to-date information about this entity.
+
+Entity: {name}
+Context: {context}
+
+Instructions:
+1. Generate queries that focus on the most important aspects mentioned in the context
+2. Include the current year ({year}) in each query for freshness
+3. Make queries specific enough to find relevant information but general enough to get broad results
+4. If context is empty or vague, generate queries about recent news and company updates
+
+Return ONLY a JSON array of strings (queries), no other text.
+Example format: ["query 1", "query 2", "query 3"]"""
 
     def __init__(self):
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.PATTERNS]
@@ -103,8 +119,6 @@ Respond with JSON array only. Example: [{{"name": "Company Name", "context": "re
             )
             entities = []
 
-            import json
-
             try:
                 companies = json.loads(response)
                 for c in companies:
@@ -162,29 +176,74 @@ Respond with JSON array only. Example: [{{"name": "Company Name", "context": "re
 
         return min(score, 1.0)
 
-    def generate_queries(self, entity: Entity, max_queries: int = 2) -> List[str]:
-        """Generate specific search queries."""
+    async def generate_queries(self, entity: Entity, max_queries: int = 4) -> List[str]:
+        """Generate specific search queries using LLM-first approach."""
+        year = datetime.now().year
+
+        prompt = self.QUERY_GENERATION_PROMPT.format(
+            name=entity.name, context=entity.context, year=year
+        )
+
+        try:
+            from app.services.llm import LLMClient
+
+            llm = LLMClient()
+            response = llm.generate(
+                prompt, system="You generate search queries for entity research."
+            )
+
+            queries = self._parse_queries_response(response)
+            if queries:
+                return queries[:max_queries]
+        except Exception:
+            pass
+
+        return self._generate_fallback_queries(entity, max_queries)
+
+    def _parse_queries_response(self, response: str) -> List[str]:
+        """Parse LLM response into list of queries."""
+        try:
+            queries = json.loads(response)
+            if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
+                return queries
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            match = re.search(r"\[[\s\S]*\]", response)
+            if match:
+                queries = json.loads(match.group())
+                if isinstance(queries, list) and all(
+                    isinstance(q, str) for q in queries
+                ):
+                    return queries
+        except json.JSONDecodeError:
+            pass
+
+        return []
+
+    def _generate_fallback_queries(self, entity: Entity, max_queries: int) -> List[str]:
+        """Rule-based fallback when LLM fails."""
         name = entity.name
         context = entity.context.lower()
+        year = datetime.now().year
         queries = []
 
-        queries.append(f"{name} recent news 2024")
+        queries.append(f"{name} recent news {year}")
 
-        if "acquired" in context or "acquisition" in context:
-            queries.append(f"{name} acquisition buyer 2024")
-        elif "ipo" in context:
-            queries.append(f"{name} IPO stock valuation 2024")
-        elif "partnership" in context or "partner" in context:
-            queries.append(f"{name} partnership collaboration 2024")
-        elif "product" in context or "platform" in context or "launch" in context:
-            queries.append(f"{name} product launch features 2024")
-        elif any(
-            kw in context
-            for kw in ["funding", "raised", "series", "$", "million", "billion"]
-        ):
-            queries.append(f"{name} funding Series investment 2024")
-        else:
-            queries.append(f"{name} company news updates 2024")
+        if any(kw in context for kw in ["acquired", "acquisition", "acquiring"]):
+            queries.append(f"{name} acquisition buyer {year}")
+        if any(kw in context for kw in ["ipo", "went public", "public"]):
+            queries.append(f"{name} IPO stock valuation {year}")
+        if any(kw in context for kw in ["partnership", "partner", "collaboration"]):
+            queries.append(f"{name} partnership collaboration {year}")
+        if any(kw in context for kw in ["product", "platform", "launch"]):
+            queries.append(f"{name} product launch features {year}")
+        if any(kw in context for kw in ["funding", "raised", "series", "investment"]):
+            queries.append(f"{name} funding investment {year}")
+
+        if not queries:
+            queries.append(f"{name} company news updates {year}")
 
         return queries[:max_queries]
 

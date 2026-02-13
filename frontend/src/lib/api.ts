@@ -390,3 +390,21 @@ export function transformBriefing(response: PrepResponse) {
     actions: [],
   };
 }
+
+export interface TaskDetailResponse {
+  task_id: string;
+  session_id: string;
+  user_input: string;
+  inferred_intent: string;
+  tools_used: string;
+  status: string;
+  timestamp: string;
+  execution_details: string;
+}
+
+export async function fetchTaskDetail(taskId: string): Promise<TaskDetailResponse> {
+  const res = await fetch(`${API_BASE}/admin/tasks/${taskId}`);
+  if (!res.ok) throw new Error("Failed to fetch task details");
+  const data = await res.json();
+  return data.task;
+}

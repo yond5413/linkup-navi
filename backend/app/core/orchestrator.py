@@ -6,6 +6,7 @@ Modes:
 - "full": Unified agent combining Agents 1, 2, 3
 """
 
+import json
 import logging
 from typing import Optional, List, Dict, Any
 
@@ -66,6 +67,16 @@ class AgentOrchestrator:
             user_input=command, session_id=session_id, mode=mode
         )
 
+        execution_trace = result.get("execution_trace", [])
+        execution_details = json.dumps(
+            {
+                "execution_trace": execution_trace,
+                "iterations": result.get("iterations", 0),
+                "artifacts_keys": result.get("artifacts_keys", []),
+                "completed_steps": result.get("tasks", []),
+            }
+        )
+
         try:
             task = await TaskRepository.create_task(
                 session_id=session_id,
@@ -73,6 +84,7 @@ class AgentOrchestrator:
                 inferred_intent=result.get("intent", "unknown"),
                 tools_used="UnifiedAgent",
                 status="completed",
+                execution_details=execution_details,
             )
         except Exception as e:
             logger.warning(f"Failed to create task: {e}")
@@ -100,6 +112,16 @@ class AgentOrchestrator:
             user_input=command, session_id=session_id, files=file_contents, mode=mode
         )
 
+        execution_trace = result.get("execution_trace", [])
+        execution_details = json.dumps(
+            {
+                "execution_trace": execution_trace,
+                "iterations": result.get("iterations", 0),
+                "artifacts_keys": result.get("artifacts_keys", []),
+                "completed_steps": result.get("completed_steps", []),
+            }
+        )
+
         try:
             task = await TaskRepository.create_task(
                 session_id=session_id,
@@ -109,6 +131,7 @@ class AgentOrchestrator:
                 else str(result.get("response", ""))[:100],
                 tools_used="ReActAgent",
                 status="completed",
+                execution_details=execution_details,
             )
         except Exception as e:
             logger.warning(f"Failed to create task: {e}")

@@ -91,3 +91,38 @@ export type ExecutionStep =
   | "Generating response"
   | "Complete"
   | "Waiting";
+
+export interface TaskExecutionDetail {
+  tool: string;
+  observation: string;
+  timestamp: string;
+}
+
+export interface CompletedStep {
+  step: number;
+  tool: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface TaskExecutionDetails {
+  execution_trace: TaskExecutionDetail[];
+  iterations: number;
+  artifacts_keys: string[];
+  completed_steps: (CompletedStep | string)[];
+}
+
+export interface Task {
+  task_id: string;
+  session_id: string;
+  user_input: string;
+  inferred_intent: string;
+  tools_used: string;
+  status: string;
+  timestamp: string;
+  execution_details?: string;
+}
+
+export interface TaskDetail extends Task {
+  executionDetailsParsed?: TaskExecutionDetails;
+}

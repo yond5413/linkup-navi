@@ -14,6 +14,9 @@ from app.api import memory
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.uploads_path.mkdir(parents=True, exist_ok=True)
+    from app.db.connection import init_db
+
+    await init_db()
     yield
 
 

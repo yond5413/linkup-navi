@@ -56,6 +56,7 @@ class Task:
     tools_used: str
     status: str
     created_at: str
+    execution_details: str = ""  # JSON string of execution details
 
     def to_dict(self):
         return asdict(self)
@@ -137,9 +138,16 @@ async def init_db():
             tools_used TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
+            execution_details TEXT DEFAULT '',
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         )
     """)
+    try:
+        await db.execute(
+            "ALTER TABLE tasks ADD COLUMN execution_details TEXT DEFAULT ''"
+        )
+    except:
+        pass
     await db.execute("""
         CREATE TABLE IF NOT EXISTS session_messages (
             id TEXT PRIMARY KEY,
@@ -410,6 +418,7 @@ class TaskRepository:
         inferred_intent: str,
         tools_used: str,
         status: str = "pending",
+        execution_details: str = "",
     ) -> Task:
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         task_id = str(uuid.uuid4())
@@ -421,10 +430,11 @@ class TaskRepository:
             tools_used=tools_used,
             status=status,
             created_at=now,
+            execution_details=execution_details,
         )
         db = await get_connection()
         await db.execute(
-            "INSERT INTO tasks (id, session_id, user_input, inferred_intent, tools_used, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, session_id, user_input, inferred_intent, tools_used, status, created_at, execution_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.id,
                 task.session_id,
@@ -433,6 +443,7 @@ class TaskRepository:
                 task.tools_used,
                 task.status,
                 task.created_at,
+                task.execution_details,
             ),
         )
         await db.commit()
@@ -443,7 +454,7 @@ class TaskRepository:
     async def get_recent_tasks(limit: int = 50) -> list[dict]:
         db = await get_connection()
         cursor = await db.execute(
-            "SELECT id, session_id, user_input, inferred_intent, tools_used, status, created_at FROM tasks ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, session_id, user_input, inferred_intent, tools_used, status, created_at, execution_details FROM tasks ORDER BY created_at DESC LIMIT ?",
             (limit,),
         )
         rows = await cursor.fetchall()
@@ -457,9 +468,32 @@ class TaskRepository:
                 "tools_used": row[4],
                 "status": row[5],
                 "timestamp": row[6],
+                "execution_details": row[7] if len(row) > 7 else "",
             }
             for row in rows
         ]
+
+    @staticmethod
+    async def get_task_by_id(task_id: str) -> dict | None:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT id, session_id, user_input, inferred_intent, tools_used, status, created_at, execution_details FROM tasks WHERE id = ?",
+            (task_id,),
+        )
+        row = await cursor.fetchone()
+        await db.close()
+        if not row:
+            return None
+        return {
+            "task_id": row[0],
+            "session_id": row[1],
+            "user_input": row[2],
+            "inferred_intent": row[3],
+            "tools_used": row[4],
+            "status": row[5],
+            "timestamp": row[6],
+            "execution_details": row[7] if len(row) > 7 else "",
+        }
 
     @staticmethod
     async def update_task_status(task_id: str, status: str):
@@ -595,6 +629,7 @@ class AppSettingsRepository:
 @dataclass
 class ContentItemModel:
     """Database model for content items."""
+
     id: str
     source_type: str
     title: str
