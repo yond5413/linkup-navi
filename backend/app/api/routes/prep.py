@@ -16,6 +16,7 @@ from app.models.responses import (
 )
 from app.services.memory import SessionMemory
 from app.services.llm import LLMClient
+from app.services.intelligent_retrieval import create_intelligent_retrieval_service
 from app.core.orchestrator import AgentOrchestrator
 from app.core.query_classifier import classify_query
 from app.db.schema import SessionRepository, MessageRepository
@@ -125,6 +126,18 @@ async def prepare_meeting(request: PrepRequest):
     all_file_contents = await memory.get_all_file_contents()
     file_contents = all_file_contents or {}
 
+    # Intelligent Retrieval: Query memory and evaluate with LLM
+    retrieval_service = create_intelligent_retrieval_service(llm=llm)
+    retrieval_result = await retrieval_service.retrieve_and_evaluate(
+        query=command, top_k=5, query_context=f"Session goal: {session_goal}"
+    )
+
+    logger.info(
+        f"Intelligent retrieval strategy: {retrieval_result['strategy']} "
+        f"(confidence: {retrieval_result['confidence']:.2f}, "
+        f"max_similarity: {retrieval_result['max_similarity']:.2f})"
+    )
+
     orchestrator = AgentOrchestrator(llm=llm)
 
     result = await orchestrator.run(
@@ -134,6 +147,7 @@ async def prepare_meeting(request: PrepRequest):
         session_goal=session_goal,
         explicit_entities=request.research_entities,
         mode=mode,
+        retrieval_context=retrieval_result,  # Pass retrieval results to orchestrator
     )
 
     if result.get("status") == "needs_clarification":
@@ -230,6 +244,18 @@ async def prepare_meeting_with_files(request: PrepRequest):
     except Exception as e:
         logger.warning(f"Failed to save user message: {e}")
 
+    # Intelligent Retrieval: Query memory and evaluate with LLM
+    retrieval_service = create_intelligent_retrieval_service(llm=llm)
+    retrieval_result = await retrieval_service.retrieve_and_evaluate(
+        query=command, top_k=5, query_context=f"Session goal: {session_goal}"
+    )
+
+    logger.info(
+        f"Intelligent retrieval strategy: {retrieval_result['strategy']} "
+        f"(confidence: {retrieval_result['confidence']:.2f}, "
+        f"max_similarity: {retrieval_result['max_similarity']:.2f})"
+    )
+
     orchestrator = AgentOrchestrator(llm=llm)
 
     result = await orchestrator.run(
@@ -239,6 +265,7 @@ async def prepare_meeting_with_files(request: PrepRequest):
         session_goal=session_goal,
         explicit_entities=request.research_entities,
         mode=mode,
+        retrieval_context=retrieval_result,  # Pass retrieval results to orchestrator
     )
 
     if result.get("status") == "needs_clarification":

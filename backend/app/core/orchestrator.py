@@ -44,16 +44,22 @@ class AgentOrchestrator:
         session_goal: str,
         explicit_entities: Optional[List[str]] = None,
         mode: str = "react",
+        retrieval_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if mode == "legacy":
             return await self._run_legacy(
                 command, file_contents, session_id, session_goal
             )
         elif mode == "full":
-            return await self._run_unified(command, session_id, mode)
+            return await self._run_unified(command, session_id, mode, retrieval_context)
         else:
             return await self._run_agent(
-                command, file_contents, session_id, session_goal, mode
+                command,
+                file_contents,
+                session_id,
+                session_goal,
+                mode,
+                retrieval_context,
             )
 
     async def _run_unified(
@@ -61,10 +67,14 @@ class AgentOrchestrator:
         command: str,
         session_id: str,
         mode: str,
+        retrieval_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Run the unified agent combining Agents 1, 2, 3."""
         result = await self.unified_agent.run_full(
-            user_input=command, session_id=session_id, mode=mode
+            user_input=command,
+            session_id=session_id,
+            mode=mode,
+            retrieval_context=retrieval_context,
         )
 
         execution_trace = result.get("execution_trace", [])
@@ -107,9 +117,15 @@ class AgentOrchestrator:
         session_id: str,
         session_goal: str,
         mode: str,
+        retrieval_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        # Pass retrieval context to agent for strategy-aware execution
         result = await self.react_agent.run(
-            user_input=command, session_id=session_id, files=file_contents, mode=mode
+            user_input=command,
+            session_id=session_id,
+            files=file_contents,
+            mode=mode,
+            retrieval_context=retrieval_context,
         )
 
         execution_trace = result.get("execution_trace", [])

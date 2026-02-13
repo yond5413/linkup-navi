@@ -55,6 +55,7 @@ class ReActAgent:
         session_id: str,
         files: Dict[str, str] = None,
         mode: str = "react",
+        retrieval_context: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         working_mem = WorkingMemory(session_id)
         working_mem.add_message("user", user_input)
@@ -80,10 +81,16 @@ class ReActAgent:
         elif mode == "plan_then_act":
             return await self._plan_then_act_mode(user_input, working_mem, session_id)
         else:
-            return await self._react_loop(user_input, working_mem, session_id)
+            return await self._react_loop(
+                user_input, working_mem, session_id, retrieval_context
+            )
 
     async def _react_loop(
-        self, user_input: str, working_mem: WorkingMemory, session_id: str
+        self,
+        user_input: str,
+        working_mem: WorkingMemory,
+        session_id: str,
+        retrieval_context: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         thought = ""
         iteration = 0
@@ -100,7 +107,9 @@ class ReActAgent:
         while iteration < self.config.max_iterations:
             iteration += 1
 
-            thought = await self._reason(user_input, working_mem, thought)
+            thought = await self._reason(
+                user_input, working_mem, thought, retrieval_context
+            )
 
             if self._is_complete(thought):
                 working_mem.reflection_notes = f"Completed in {iteration} iterations"
@@ -144,7 +153,11 @@ class ReActAgent:
         return await self._synthesize_response(working_mem, completed_steps)
 
     async def _reason(
-        self, user_input: str, working_mem: WorkingMemory, prev_thought: str
+        self,
+        user_input: str,
+        working_mem: WorkingMemory,
+        prev_thought: str,
+        retrieval_context: Dict[str, Any] = None,
     ) -> str:
         context = working_mem.get_context_for_llm()
         tools_available = self.tool_registry.get_tool_names()
@@ -153,8 +166,30 @@ class ReActAgent:
             or "No pre-research conducted."
         )
 
+        # Format retrieval context if available
+        retrieval_info = ""
+        if retrieval_context:
+            strategy = retrieval_context.get("strategy", "unknown")
+            max_sim = retrieval_context.get("max_similarity", 0)
+            reasoning = retrieval_context.get("reasoning", "")
+            gaps = retrieval_context.get("research_gaps", [])
+            memory_chunks = retrieval_context.get("memory_results", [])
+
+            retrieval_info = f"""
+INTELLIGENT RETRIEVAL CONTEXT:
+Strategy: {strategy}
+Max Similarity: {max_sim:.2f}
+Reasoning: {reasoning}
+Research Gaps: {", ".join(gaps) if gaps else "None identified"}
+
+Relevant Memory Context:
+{chr(10).join([f"- [{chunk.get('cosine_similarity', 0):.2f}] {chunk.get('text', '')[:200]}" for chunk in memory_chunks[:3]]) if memory_chunks else "No relevant memory found"}
+"""
+
         prompt = f"""
 You are a reasoning agent. Based on the conversation so far, determine your next step.
+
+{retrieval_info}
 
 CRITICAL RESEARCH PROTOCOL:
 When documents mention specific companies with funding, acquisitions, or product launches:

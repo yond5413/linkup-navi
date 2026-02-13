@@ -58,7 +58,11 @@ class UnifiedAgent:
         self.llm_router = create_llm_router()
 
     async def run_full(
-        self, user_input: str, session_id: str = None, mode: str = "auto"
+        self,
+        user_input: str,
+        session_id: str = None,
+        mode: str = "auto",
+        retrieval_context: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """Execute the full unified agent workflow.
 
@@ -86,18 +90,29 @@ class UnifiedAgent:
 
         tasks = await task_router.decompose_intent(user_input)
 
+        # Pass retrieval context to planner if available
+        file_context = None
+        session_goal_context = None
+        if retrieval_context:
+            file_context = {"retrieval_strategy": retrieval_context.get("strategy")}
+            session_goal_context = retrieval_context.get("reasoning", "")
+
         plan = await memory_planner.create_plan(
             goal=user_input,
             tasks=tasks,
             session_id=session_id,
-            content_store=content_store,
+            file_context=file_context,
+            session_goal=session_goal_context if session_goal_context else None,
         )
+
+        # Include retrieval context in execution
+        executor_context = {"plan": plan, "retrieval_context": retrieval_context}
 
         results = await executor.execute(
             plan=plan, session_id=session_id, executor_func=self._execute_task
         )
 
-        response = await self._synthesize_response(results)
+        response = await self._synthesize_response(results, retrieval_context)
 
         return {
             "original_input": user_input,
@@ -109,6 +124,12 @@ class UnifiedAgent:
             "response": response,
             "session_id": session_id,
             "timestamp": datetime.utcnow().isoformat(),
+            "retrieval_strategy": retrieval_context.get("strategy")
+            if retrieval_context
+            else None,
+            "retrieval_confidence": retrieval_context.get("confidence")
+            if retrieval_context
+            else None,
         }
 
     async def run_planning_only(
@@ -207,13 +228,31 @@ class UnifiedAgent:
         else:
             return "general"
 
-    async def _synthesize_response(self, results: Dict[str, Any]) -> str:
+    async def _synthesize_response(
+        self, results: Dict[str, Any], retrieval_context: Dict[str, Any] = None
+    ) -> str:
         """Synthesize final response from execution results using LLMRouter."""
         completed = results.get("completed", [])
         task_count = len(completed)
 
-        synthesis_prompt = f"""Synthesize the results of {task_count} completed tasks into a coherent response.
+        # Include retrieval context in synthesis
+        retrieval_info = ""
+        if retrieval_context:
+            strategy = retrieval_context.get("strategy", "unknown")
+            memory_chunks = retrieval_context.get("memory_results", [])
+            gaps = retrieval_context.get("research_gaps", [])
 
+            if memory_chunks and strategy != "full_research":
+                retrieval_info = f"""
+Sources: {len(memory_chunks)} document(s) from your knowledge base
+"""
+                if gaps:
+                    retrieval_info += (
+                        f"Additional research performed on: {', '.join(gaps[:3])}\n"
+                    )
+
+        synthesis_prompt = f"""Synthesize the results of {task_count} completed tasks into a coherent response.
+{retrieval_info}
 Completed tasks: {[c.get("type", "unknown") for c in completed]}
 
 Provide a clear, concise summary of what was accomplished."""

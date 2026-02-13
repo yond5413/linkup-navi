@@ -8,7 +8,7 @@ async def query_memory(query: str, session_id: str, top_k: int = 5) -> dict:
     from app.services.vector_memory import get_vector_memory_service
 
     vmem = get_vector_memory_service()
-    results = vmem.query(query, top_k=top_k)
+    results = vmem.query_memory(query, top_k=top_k)
     return {"results": results}
 
 
@@ -17,7 +17,7 @@ async def store_memory(content: str, session_id: str, metadata: dict = None) -> 
     from app.services.vector_memory import get_vector_memory_service
 
     vmem = get_vector_memory_service()
-    embedding_id = vmem.add(content, metadata or {})
+    embedding_id = vmem.add_to_memory(content)
     return {"embedding_id": embedding_id}
 
 
